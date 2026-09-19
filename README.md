@@ -1,16 +1,58 @@
-# React + Vite
+# 💊 MedConnect — Medicine Availability Finder
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+MedConnect is a React and Firebase-based web application that helps users find medicines available at nearby verified pharmacies.
 
-Currently, two official plugins are available:
+## 🚀 Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 👤 User
+- Search medicines
+- Find nearby pharmacies
+- Check medicine availability
+- Request medicines
+- Upload prescriptions
+- Track requests and prescriptions
 
-## React Compiler
+### 🏪 Pharmacy
+- Manage pharmacy profile
+- Add medicines
+- Update medicine stock
+- Update and delete medicines
+- Manage medicine requests
+- Review prescriptions
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 🛡️ Admin
+- Admin dashboard
+- Verify pharmacy applications
+- Approve or reject pharmacies
+- Suspend or reactivate pharmacies
+- Manage users
+- Monitor platform activity
 
-## Expanding the ESLint configuration
+## 🛠️ Technologies
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- React.js
+- Firebase Authentication
+- Firebase Firestore
+- Firebase Storage
+- Cloudinary
+- React Router
+- JavaScript
+- CSS
+
+## 📁 Project Structure
+
+```text
+src/
+│
+├── component/
+│   ├── admin/
+│   ├── auth/
+│   ├── common/
+│   ├── home/
+│   ├── medicine/
+│   ├── pharmacy/
+│   └── request/
+│
+├── config/
+├── firebase/
+└── App.jsx
