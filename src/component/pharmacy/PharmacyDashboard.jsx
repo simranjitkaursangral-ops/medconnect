@@ -1,542 +1,311 @@
 import { useEffect, useState } from "react";
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    where
 } from "firebase/firestore";
-import { db } from "../../firebase/Firebase";
-import { Link, useNavigate } from "react-router-dom";
+
+import { auth, db } from "../../firebase/Firebase";
+import { useNavigate } from "react-router-dom";
+
 
 function PharmacyDashboard() {
-  const navigate = useNavigate();
+    const navigate = useNavigate();
 
-  const [pharmacy, setPharmacy] = useState(null);
-  const [stats, setStats] = useState({
-    medicines: 0,
-    availableMedicines: 0,
-    requests: 0,
-    prescriptions: 0
-  });
+    const [pharmacyName, setPharmacyName] = useState("Pharmacy");
+    const [stats, setStats] = useState({
+        totalMedicines: 0,
+        availableMedicines: 0,
+        outOfStock: 0,
+        totalStock: 0
+    });
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+    useEffect(() => {
+        fetchDashboardData();
+    }, []);
 
-  const loadDashboard = async () => {
-    try {
-      setLoading(true);
-      setError("");
+    const fetchDashboardData = async () => {
+        try {
+            setLoading(true);
+            setError("");
 
-      const uid = localStorage.getItem("uid");
-      const pharmacyId =
-        localStorage.getItem("pharmacyId");
+            const user = auth.currentUser;
 
-      const userType =
-        localStorage.getItem("userType");
+            if (!user) {
+                navigate("/login");
+                return;
+            }
 
-      if (
-        !uid ||
-        userType !== "pharmacy"
-      ) {
-        navigate("/login");
-        return;
-      }
+            // Get logged-in user details
+            const userRef = doc(db, "users", user.uid);
+            const userSnap = await getDoc(userRef);
 
-      const userSnapshot = await getDoc(
-        doc(db, "users", uid)
-      );
+            if (!userSnap.exists()) {
+                setError("User information not found.");
+                return;
+            }
 
-      if (!userSnapshot.exists()) {
-        localStorage.clear();
-        navigate("/login");
-        return;
-      }
+            const userData = userSnap.data();
 
-      const userData =
-        userSnapshot.data();
+            if (userData.role !== "pharmacy" || userData.status !== "approved") {
+                setError("You are not authorized to access this dashboard.");
+                return;
+            }
 
-      if (
-        userData.role !== "pharmacy" ||
-        userData.status !== "approved"
-      ) {
-        localStorage.clear();
-        navigate("/login");
-        return;
-      }
+            const pharmacyId = userData.pharmacyId;
 
-      if (!userData.pharmacyId) {
-        setError(
-          "Pharmacy information is incomplete."
-        );
-        return;
-      }
+            if (!pharmacyId) {
+                setError("Pharmacy information is missing.");
+                return;
+            }
 
-      const actualPharmacyId =
-        userData.pharmacyId;
+            // Get pharmacy details
+            const pharmacyRef = doc(db, "pharmacies", pharmacyId);
+            const pharmacySnap = await getDoc(pharmacyRef);
 
-      const pharmacySnapshot =
-        await getDoc(
-          doc(
-            db,
-            "pharmacies",
-            actualPharmacyId
-          )
-        );
+            if (!pharmacySnap.exists()) {
+                setError("Pharmacy profile not found.");
+                return;
+            }
 
-      if (!pharmacySnapshot.exists()) {
-        setError(
-          "Pharmacy profile was not found."
-        );
-        return;
-      }
+            const pharmacyData = pharmacySnap.data();
 
-      const pharmacyData =
-        pharmacySnapshot.data();
+            if (pharmacyData.ownerId !== user.uid) {
+                setError("You are not authorized to access this pharmacy.");
+                return;
+            }
 
-      if (
-        pharmacyData.ownerId !== uid ||
-        pharmacyData.status !== "approved"
-      ) {
-        localStorage.clear();
-        navigate("/login");
-        return;
-      }
+            setPharmacyName(
+                pharmacyData.name ||
+                pharmacyData.pharmacyName ||
+                userData.name ||
+                "Pharmacy"
+            );
 
-      setPharmacy({
-        id: pharmacySnapshot.id,
-        ...pharmacyData
-      });
+            // Get medicines belonging to this pharmacy
+            const medicineQuery = query(
+                collection(db, "medicines"),
+                where("pharmacyId", "==", pharmacyId)
+            );
 
-      localStorage.setItem(
-        "pharmacyId",
-        actualPharmacyId
-      );
+            const medicineSnapshot = await getDocs(medicineQuery);
 
-      const medicinesSnapshot =
-        await getDocs(
-          collection(db, "medicines")
-        );
+            let total = 0;
+            let available = 0;
+            let outOfStock = 0;
+            let stock = 0;
 
-      const ownMedicines =
-        medicinesSnapshot.docs
-          .map((item) => ({
-            id: item.id,
-            ...item.data()
-          }))
-          .filter(
-            (item) =>
-              item.pharmacyId ===
-              actualPharmacyId
-          );
+            medicineSnapshot.forEach((medicineDoc) => {
+                const medicine = medicineDoc.data();
 
-      const requestsSnapshot =
-        await getDocs(
-          collection(
-            db,
-            "medicineRequests"
-          )
-        );
+                total++;
 
-      const ownRequests =
-        requestsSnapshot.docs
-          .map((item) => ({
-            id: item.id,
-            ...item.data()
-          }))
-          .filter(
-            (item) =>
-              item.pharmacyId ===
-              actualPharmacyId
-          );
+                const quantity = Number(medicine.quantity || 0);
+                stock += quantity;
 
-      const prescriptionsSnapshot =
-        await getDocs(
-          collection(
-            db,
-            "prescriptions"
-          )
-        );
+                if (
+                    medicine.availability === "Available" &&
+                    quantity > 0
+                ) {
+                    available++;
+                } else {
+                    outOfStock++;
+                }
+            });
 
-      const ownPrescriptions =
-        prescriptionsSnapshot.docs
-          .map((item) => ({
-            id: item.id,
-            ...item.data()
-          }))
-          .filter(
-            (item) =>
-              item.pharmacyId ===
-              actualPharmacyId
-          );
+            setStats({
+                totalMedicines: total,
+                availableMedicines: available,
+                outOfStock,
+                totalStock: stock
+            });
 
-      const availableMedicines =
-        ownMedicines.filter(
-          (item) =>
-            item.available === true ||
-            Number(item.quantity) > 0
-        );
+        } catch (err) {
+            console.error("Dashboard error:", err);
 
-      setStats({
-        medicines:
-          ownMedicines.length,
+            setError(
+                "Unable to load dashboard information. Please try again."
+            );
+        } finally {
+            setLoading(false);
+        }
+    };
 
-        availableMedicines:
-          availableMedicines.length,
-
-        requests:
-          ownRequests.filter(
-            (item) =>
-              item.status === "pending"
-          ).length,
-
-        prescriptions:
-          ownPrescriptions.filter(
-            (item) =>
-              item.status === "Pending" ||
-              item.status === "pending"
-          ).length
-      });
-
-    } catch (err) {
-      console.error(
-        "PHARMACY DASHBOARD ERROR:",
-        err
-      );
-
-      setError(
-        err.message ||
-        "Unable to load pharmacy dashboard."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
     return (
-      <div className="admin-loading">
+        <div className="pharmacy-dashboard">
 
-        <div className="loading-spinner"></div>
+            {/* Welcome Section */}
+            <section className="dashboard-welcome">
 
-        <h3>
-          Loading pharmacy dashboard...
-        </h3>
+                <div className="welcome-content">
+                    <span className="welcome-label">
+                        Pharmacy Dashboard
+                    </span>
 
-      </div>
+                    <h1>
+                        Welcome, {pharmacyName}
+                    </h1>
+
+                    <p>
+                        Manage your medicine inventory and keep your
+                        pharmacy information up to date.
+                    </p>
+
+                    <div className="welcome-buttons">
+                        <button
+                            className="primary-dashboard-btn"
+                            onClick={() => navigate("/pharmacy-add-medicine")}
+                        >
+                            + Add Medicine
+                        </button>
+
+                        <button
+                            className="secondary-dashboard-btn"
+                            onClick={() => navigate("/pharmacy/profile")}
+                        >
+                            View Profile
+                        </button>
+                    </div>
+                </div>
+
+            </section>
+
+
+            {/* Inventory Overview */}
+            <section className="dashboard-inventory">
+
+                <div className="dashboard-section-heading">
+                    <div>
+                        <h2>Inventory Overview</h2>
+                        <p>
+                            A summary of your pharmacy's medicine stock.
+                        </p>
+                    </div>
+
+                    <button
+                        className="view-medicines-btn"
+                        onClick={() => navigate("/pharmacy-medicines")}
+                    >
+                        View All Medicines
+                    </button>
+                </div>
+
+
+                {loading ? (
+                    <div className="dashboard-message">
+                        Loading dashboard information...
+                    </div>
+                ) : error ? (
+                    <div className="dashboard-error">
+                        {error}
+                    </div>
+                ) : (
+                    <div className="dashboard-stats">
+
+                        <div className="dashboard-stat-card">
+                            <p>Total Medicines</p>
+                            <h3>{stats.totalMedicines}</h3>
+                            <span>Medicines in your inventory</span>
+                        </div>
+
+                        <div className="dashboard-stat-card">
+                            <p>Available Medicines</p>
+                            <h3>{stats.availableMedicines}</h3>
+                            <span>Currently available</span>
+                        </div>
+
+                        <div className="dashboard-stat-card">
+                            <p>Out of Stock</p>
+                            <h3>{stats.outOfStock}</h3>
+                            <span>Currently unavailable</span>
+                        </div>
+
+                        <div className="dashboard-stat-card">
+                            <p>Total Stock Units</p>
+                            <h3>{stats.totalStock}</h3>
+                            <span>Total quantity in stock</span>
+                        </div>
+
+                    </div>
+                )}
+
+            </section>
+
+
+            {/* Quick Access */}
+            <section className="dashboard-quick-access">
+
+                <div className="dashboard-section-heading">
+                    <div>
+                        <h2>Quick Access</h2>
+                        <p>
+                            Manage your pharmacy activities.
+                        </p>
+                    </div>
+                </div>
+
+
+                <div className="dashboard-actions">
+
+                    <button
+                        className="dashboard-action-card"
+                        onClick={() => navigate("/pharmacy-add-medicine")}
+                    >
+                        <div>
+                            <h3>Add Medicine</h3>
+                            <p>Add new medicines to your inventory.</p>
+                        </div>
+                        <span>→</span>
+                    </button>
+
+
+                    <button
+                        className="dashboard-action-card"
+                        onClick={() => navigate("/pharmacy-medicines")}
+                    >
+                        <div>
+                            <h3>Manage Medicines</h3>
+                            <p>Update prices, quantity and availability.</p>
+                        </div>
+                        <span>→</span>
+                    </button>
+
+
+                    <button
+                        className="dashboard-action-card"
+                        onClick={() => navigate("/pharmacy-requests")}
+                    >
+                        <div>
+                            <h3>Medicine Requests</h3>
+                            <p>Check and manage customer requests.</p>
+                        </div>
+                        <span>→</span>
+                    </button>
+
+
+                    <button
+                        className="dashboard-action-card"
+                        onClick={() => navigate("/pharmacy-prescriptions")}
+                    >
+                        <div>
+                            <h3>Prescriptions</h3>
+                            <p>View customer prescription details.</p>
+                        </div>
+                        <span>→</span>
+                    </button>
+
+                </div>
+
+            </section>
+
+        </div>
     );
-  }
-
-  return (
-    <div className="admin-page">
-
-      <div className="admin-page-container">
-
-        <div className="admin-hero">
-
-          <div className="admin-hero-content">
-
-            <span className="section-badge">
-              PHARMACY PARTNER
-            </span>
-
-            <h1>
-              Welcome,{" "}
-              {pharmacy?.ownerName ||
-                "Pharmacy Partner"}
-            </h1>
-
-            <p>
-              Manage your pharmacy,
-              medicines, requests and
-              prescriptions from one place.
-            </p>
-
-          </div>
-
-          <Link
-            to="/pharmacy-profile"
-            className="admin-dashboard-action"
-          >
-            My Pharmacy
-          </Link>
-
-        </div>
-
-        {error && (
-          <div className="form-error">
-            {error}
-          </div>
-        )}
-
-        <div className="admin-dashboard-stats">
-
-          <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              💊
-            </div>
-
-            <div>
-              <span>
-                Total Medicines
-              </span>
-
-              <strong>
-                {stats.medicines}
-              </strong>
-            </div>
-
-          </div>
-
-          <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              ✓
-            </div>
-
-            <div>
-              <span>
-                Available Medicines
-              </span>
-
-              <strong>
-                {stats.availableMedicines}
-              </strong>
-            </div>
-
-          </div>
-
-          <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              📋
-            </div>
-
-            <div>
-              <span>
-                Pending Requests
-              </span>
-
-              <strong>
-                {stats.requests}
-              </strong>
-            </div>
-
-          </div>
-
-          <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              📄
-            </div>
-
-            <div>
-              <span>
-                Pending Prescriptions
-              </span>
-
-              <strong>
-                {stats.prescriptions}
-              </strong>
-            </div>
-
-          </div>
-
-        </div>
-
-        <div className="admin-form-container">
-
-          <div className="admin-form-card">
-
-            <div className="admin-form-header">
-
-              <div className="admin-form-icon">
-                🏥
-              </div>
-
-              <div>
-
-                <h2>
-                  Pharmacy Operations
-                </h2>
-
-                <p>
-                  Manage your pharmacy
-                  operations.
-                </p>
-
-              </div>
-
-            </div>
-
-            <div className="application-list">
-
-              <div className="application-card">
-
-                <div className="application-card-header">
-
-                  <div>
-
-                    <span className="application-label">
-                      MEDICINE INVENTORY
-                    </span>
-
-                    <h3>
-                      Manage Medicines
-                    </h3>
-
-                  </div>
-
-                </div>
-
-                <div className="application-details">
-
-                  <div>
-                    <span>
-                      Total Medicines
-                    </span>
-
-                    <strong>
-                      {stats.medicines}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>
-                      Available
-                    </span>
-
-                    <strong>
-                      {stats.availableMedicines}
-                    </strong>
-                  </div>
-
-                </div>
-
-                <div className="application-actions">
-
-                  <Link
-                    to="/pharmacy-medicines"
-                    className="application-approve-btn"
-                  >
-                    Manage Medicines
-                  </Link>
-
-                  <Link
-                    to="/pharmacy-add-medicine"
-                    className="application-dashboard-action"
-                  >
-                    Add Medicine
-                  </Link>
-
-                </div>
-
-              </div>
-
-              <div className="application-card">
-
-                <div className="application-card-header">
-
-                  <div>
-
-                    <span className="application-label">
-                      MEDICINE REQUESTS
-                    </span>
-
-                    <h3>
-                      Customer Requests
-                    </h3>
-
-                  </div>
-
-                </div>
-
-                <div className="application-details">
-
-                  <div>
-                    <span>
-                      Pending Requests
-                    </span>
-
-                    <strong>
-                      {stats.requests}
-                    </strong>
-                  </div>
-
-                </div>
-
-                <div className="application-actions">
-
-                  <Link
-                    to="/pharmacy-requests"
-                    className="application-approve-btn"
-                  >
-                    View Requests
-                  </Link>
-
-                </div>
-
-              </div>
-
-              <div className="application-card">
-
-                <div className="application-card-header">
-
-                  <div>
-
-                    <span className="application-label">
-                      PRESCRIPTIONS
-                    </span>
-
-                    <h3>
-                      Customer Prescriptions
-                    </h3>
-
-                  </div>
-
-                </div>
-
-                <div className="application-details">
-
-                  <div>
-                    <span>
-                      Pending Prescriptions
-                    </span>
-
-                    <strong>
-                      {stats.prescriptions}
-                    </strong>
-                  </div>
-
-                </div>
-
-                <div className="application-actions">
-
-                  <Link
-                    to="/pharmacy-prescriptions"
-                    className="application-approve-btn"
-                  >
-                    View Prescriptions
-                  </Link>
-
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
-    </div>
-  );
 }
 
 export default PharmacyDashboard;

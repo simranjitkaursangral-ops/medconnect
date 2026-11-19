@@ -1,657 +1,922 @@
 import { useEffect, useState } from "react";
+
 import {
-  doc,
-  getDoc,
-  updateDoc
+    doc,
+    getDoc,
+    updateDoc
 } from "firebase/firestore";
+
 import { db } from "../../firebase/Firebase";
 
+import { useNavigate } from "react-router-dom";
+
+
 function PharmacyProfile() {
-  const uid = localStorage.getItem("uid");
 
-  const [pharmacyId, setPharmacyId] =
-    useState("");
+    const navigate = useNavigate();
 
-  const [loading, setLoading] =
-    useState(true);
+    const uid = localStorage.getItem("uid");
 
-  const [saving, setSaving] =
-    useState(false);
+    const [pharmacyId, setPharmacyId] = useState("");
 
-  const [message, setMessage] =
-    useState("");
+    const [formData, setFormData] = useState({
+        name: "",
+        phone: "",
+        address: "",
+        city: "",
+        state: "",
+        country: "",
+        latitude: "",
+        longitude: ""
+    });
 
-  const [error, setError] =
-    useState("");
+    const [originalData, setOriginalData] = useState({});
 
-  const [formData, setFormData] = useState({
-    name: "",
-    phone: "",
-    address: "",
-    city: "",
-    state: "",
-    country: "",
-    latitude: "",
-    longitude: ""
-  });
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const loadProfile = async () => {
-      if (!uid) {
-        setError(
-          "Pharmacy account not found."
-        );
-        setLoading(false);
-        return;
-      }
+    const [saving, setSaving] = useState(false);
 
-      try {
-        const userSnapshot =
-          await getDoc(
-            doc(db, "users", uid)
-          );
+    const [editMode, setEditMode] = useState(false);
 
-        if (!userSnapshot.exists()) {
-          setError(
-            "User profile not found."
-          );
-          setLoading(false);
-          return;
-        }
+    const [error, setError] = useState("");
 
-        const userData =
-          userSnapshot.data();
+    const [success, setSuccess] = useState("");
 
-        if (
-          userData.role !== "pharmacy" ||
-          userData.status !== "approved" ||
-          !userData.pharmacyId
-        ) {
-          setError(
-            "Your pharmacy account is not approved."
-          );
-          setLoading(false);
-          return;
-        }
 
-        const id =
-          userData.pharmacyId;
+    // LOAD PHARMACY PROFILE
 
-        const pharmacySnapshot =
-          await getDoc(
-            doc(db, "pharmacies", id)
-          );
+    useEffect(() => {
 
-        if (!pharmacySnapshot.exists()) {
-          setError(
-            "Pharmacy profile not found."
-          );
-          setLoading(false);
-          return;
-        }
+        const fetchProfile = async () => {
 
-        const pharmacyData =
-          pharmacySnapshot.data();
+            try {
 
-        if (
-          pharmacyData.ownerId !== uid
-        ) {
-          setError(
-            "You are not authorized to access this pharmacy."
-          );
-          setLoading(false);
-          return;
-        }
+                if (!uid) {
+                    navigate("/login");
+                    return;
+                }
 
-        if (
-          pharmacyData.status !==
-          "approved"
-        ) {
-          setError(
-            "Your pharmacy is not approved."
-          );
-          setLoading(false);
-          return;
-        }
+                const userRef = doc(db, "users", uid);
 
-        setPharmacyId(id);
+                const userSnap = await getDoc(userRef);
 
-        setFormData({
-          name:
-            pharmacyData.name || "",
-          phone:
-            pharmacyData.phone || "",
-          address:
-            pharmacyData.address || "",
-          city:
-            pharmacyData.city || "",
-          state:
-            pharmacyData.state || "",
-          country:
-            pharmacyData.country || "",
-          latitude:
-            pharmacyData.latitude !==
-            undefined
-              ? pharmacyData.latitude
-              : "",
-          longitude:
-            pharmacyData.longitude !==
-            undefined
-              ? pharmacyData.longitude
-              : ""
-        });
-      } catch (err) {
-        console.error(
-          "LOAD PHARMACY PROFILE ERROR:",
-          err
-        );
+                if (!userSnap.exists()) {
+                    setError("User account not found.");
+                    setLoading(false);
+                    return;
+                }
 
-        setError(
-          err.message ||
-            "Unable to load pharmacy profile."
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+                const userData = userSnap.data();
 
-    loadProfile();
-  }, [uid]);
+                if (userData.role !== "pharmacy") {
+                    setError("You are not authorized to access this page.");
+                    setLoading(false);
+                    return;
+                }
 
-  const handleChange = (event) => {
-    const { name, value } =
-      event.target;
+                if (userData.status !== "approved") {
+                    setError("Your pharmacy account is not approved yet.");
+                    setLoading(false);
+                    return;
+                }
 
-    setFormData((previous) => ({
-      ...previous,
-      [name]: value
-    }));
+                if (!userData.pharmacyId) {
+                    setError("Pharmacy details not found.");
+                    setLoading(false);
+                    return;
+                }
 
-    setMessage("");
-    setError("");
-  };
+                const id = userData.pharmacyId;
 
-  const handleLocation = () => {
-    setMessage("");
-    setError("");
+                setPharmacyId(id);
 
-    if (!navigator.geolocation) {
-      setError(
-        "Geolocation is not supported by your browser."
-      );
-      return;
-    }
+                const pharmacyRef = doc(db, "pharmacies", id);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setFormData((previous) => ({
-          ...previous,
-          latitude:
-            position.coords.latitude.toString(),
-          longitude:
-            position.coords.longitude.toString()
+                const pharmacySnap = await getDoc(pharmacyRef);
+
+                if (!pharmacySnap.exists()) {
+                    setError("Pharmacy information not found.");
+                    setLoading(false);
+                    return;
+                }
+
+                const pharmacyData = pharmacySnap.data();
+
+                if (pharmacyData.ownerId !== uid) {
+                    setError("You are not authorized to access this pharmacy.");
+                    setLoading(false);
+                    return;
+                }
+
+                if (pharmacyData.status !== "approved") {
+                    setError("Your pharmacy is not approved yet.");
+                    setLoading(false);
+                    return;
+                }
+
+                const data = {
+                    name: pharmacyData.name || "",
+                    phone: pharmacyData.phone || "",
+                    address: pharmacyData.address || "",
+                    city: pharmacyData.city || "",
+                    state: pharmacyData.state || "",
+                    country: pharmacyData.country || "",
+                    latitude: pharmacyData.latitude || "",
+                    longitude: pharmacyData.longitude || ""
+                };
+
+                setFormData(data);
+
+                setOriginalData(data);
+
+                setLoading(false);
+
+            } catch (err) {
+
+                console.log(err);
+
+                setError("Unable to load pharmacy profile.");
+
+                setLoading(false);
+
+            }
+
+        };
+
+        fetchProfile();
+
+    }, [uid, navigate]);
+
+
+    // HANDLE INPUT CHANGE
+
+    const handleChange = (e) => {
+
+        const { name, value } = e.target;
+
+        setFormData((prev) => ({
+            ...prev,
+            [name]: value
         }));
 
-        setMessage(
-          "Current location added successfully."
-        );
-      },
-      () => {
-        setError(
-          "Unable to get your location. Please allow location access."
-        );
-      }
-    );
-  };
+    };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
 
-    setMessage("");
-    setError("");
+    // GET CURRENT LOCATION
 
-    if (!uid || !pharmacyId) {
-      setError(
-        "Pharmacy account information is missing."
-      );
-      return;
-    }
+    const getCurrentLocation = () => {
 
-    if (!formData.name.trim()) {
-      setError(
-        "Pharmacy name is required."
-      );
-      return;
-    }
+        setError("");
+        setSuccess("");
 
-    if (!formData.phone.trim()) {
-      setError(
-        "Phone number is required."
-      );
-      return;
-    }
+        if (!navigator.geolocation) {
 
-    if (!formData.address.trim()) {
-      setError(
-        "Address is required."
-      );
-      return;
-    }
+            setError("Geolocation is not supported by your browser.");
 
-    if (!formData.city.trim()) {
-      setError(
-        "City is required."
-      );
-      return;
-    }
+            return;
 
-    if (!formData.state.trim()) {
-      setError(
-        "State is required."
-      );
-      return;
-    }
-
-    if (!formData.country.trim()) {
-      setError(
-        "Country is required."
-      );
-      return;
-    }
-
-    if (
-      formData.latitude !== "" &&
-      isNaN(Number(formData.latitude))
-    ) {
-      setError(
-        "Latitude must be a valid number."
-      );
-      return;
-    }
-
-    if (
-      formData.longitude !== "" &&
-      isNaN(Number(formData.longitude))
-    ) {
-      setError(
-        "Longitude must be a valid number."
-      );
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const userSnapshot =
-        await getDoc(
-          doc(db, "users", uid)
-        );
-
-      if (!userSnapshot.exists()) {
-        throw new Error(
-          "User profile not found."
-        );
-      }
-
-      const userData =
-        userSnapshot.data();
-
-      if (
-        userData.role !== "pharmacy" ||
-        userData.status !== "approved" ||
-        userData.pharmacyId !== pharmacyId
-      ) {
-        throw new Error(
-          "You are not authorized to update this pharmacy."
-        );
-      }
-
-      const pharmacyRef = doc(
-        db,
-        "pharmacies",
-        pharmacyId
-      );
-
-      const pharmacySnapshot =
-        await getDoc(pharmacyRef);
-
-      if (!pharmacySnapshot.exists()) {
-        throw new Error(
-          "Pharmacy profile not found."
-        );
-      }
-
-      const pharmacyData =
-        pharmacySnapshot.data();
-
-      if (
-        pharmacyData.ownerId !== uid
-      ) {
-        throw new Error(
-          "You are not authorized to update this pharmacy."
-        );
-      }
-
-      if (
-        pharmacyData.status !==
-        "approved"
-      ) {
-        throw new Error(
-          "Only an approved pharmacy can update its profile."
-        );
-      }
-
-      await updateDoc(
-        pharmacyRef,
-        {
-          name:
-            formData.name.trim(),
-          phone:
-            formData.phone.trim(),
-          address:
-            formData.address.trim(),
-          city:
-            formData.city.trim(),
-          state:
-            formData.state.trim(),
-          country:
-            formData.country.trim(),
-          latitude:
-            formData.latitude === ""
-              ? ""
-              : Number(
-                  formData.latitude
-                ),
-          longitude:
-            formData.longitude === ""
-              ? ""
-              : Number(
-                  formData.longitude
-                )
         }
-      );
 
-      localStorage.setItem(
-        "userName",
-        formData.name.trim()
-      );
+        navigator.geolocation.getCurrentPosition(
 
-      setMessage(
-        "Pharmacy profile updated successfully."
-      );
-    } catch (err) {
-      console.error(
-        "UPDATE PHARMACY PROFILE ERROR:",
-        err
-      );
+            (position) => {
 
-      setError(
-        err.message ||
-          "Unable to update pharmacy profile."
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
+                setFormData((prev) => ({
+                    ...prev,
+                    latitude: position.coords.latitude.toString(),
+                    longitude: position.coords.longitude.toString()
+                }));
 
-  if (loading) {
-    return (
-      <main className="admin-page">
-        <div className="admin-page-container">
-          <div className="admin-loading">
-            <div className="loading-spinner"></div>
-            <h3>
-              Loading pharmacy profile...
-            </h3>
-          </div>
-        </div>
-      </main>
-    );
-  }
+                setSuccess("Current location captured successfully.");
 
-  if (error && !pharmacyId) {
-    return (
-      <main className="admin-page">
-        <div className="admin-page-container">
-          <div className="admin-loading">
-            <h3>{error}</h3>
-          </div>
-        </div>
-      </main>
-    );
-  }
+            },
 
-  return (
-    <main className="admin-page">
+            () => {
 
-      <div className="admin-page-container">
+                setError("Unable to get your location. Please allow location access.");
 
-        <div className="admin-hero">
+            }
 
-          <div className="admin-hero-content">
+        );
 
-            <span className="section-badge">
-              My Pharmacy
-            </span>
+    };
 
-            <h1>
-              Pharmacy Profile
-            </h1>
 
-            <p>
-              Keep your pharmacy information
-              accurate so customers can find
-              and contact you easily.
-            </p>
+    // VALIDATE FORM
 
-          </div>
+    const validateForm = () => {
 
-        </div>
+        if (!formData.name.trim()) {
+            setError("Pharmacy name is required.");
+            return false;
+        }
 
-        {message && (
-          <div className="form-success">
-            {message}
-          </div>
-        )}
+        if (!formData.phone.trim()) {
+            setError("Phone number is required.");
+            return false;
+        }
 
-        {error && (
-          <div className="form-error">
-            {error}
-          </div>
-        )}
+        if (!/^[0-9]{10}$/.test(formData.phone)) {
+            setError("Please enter a valid 10-digit phone number.");
+            return false;
+        }
 
-        <div className="admin-form-container">
+        if (!formData.address.trim()) {
+            setError("Address is required.");
+            return false;
+        }
 
-          <div className="admin-form-card">
+        if (!formData.city.trim()) {
+            setError("City is required.");
+            return false;
+        }
 
-            <div className="admin-form-header">
+        if (!formData.state.trim()) {
+            setError("State is required.");
+            return false;
+        }
 
-              <div className="admin-form-icon">
-                🏥
-              </div>
+        if (!formData.country.trim()) {
+            setError("Country is required.");
+            return false;
+        }
 
-              <div>
-                <h2>
-                  Pharmacy Information
-                </h2>
+        return true;
 
-                <p>
-                  Update your pharmacy details
-                  and location.
-                </p>
-              </div>
+    };
+
+
+    // SAVE PROFILE
+
+    const handleSubmit = async (e) => {
+
+        e.preventDefault();
+
+        setError("");
+        setSuccess("");
+
+        if (!validateForm()) {
+            return;
+        }
+
+        try {
+
+            setSaving(true);
+
+            const pharmacyRef = doc(db, "pharmacies", pharmacyId);
+
+            await updateDoc(pharmacyRef, {
+
+                name: formData.name.trim(),
+
+                phone: formData.phone.trim(),
+
+                address: formData.address.trim(),
+
+                city: formData.city.trim(),
+
+                state: formData.state.trim(),
+
+                country: formData.country.trim(),
+
+                latitude: formData.latitude,
+
+                longitude: formData.longitude
+
+            });
+
+            setOriginalData(formData);
+
+            setEditMode(false);
+
+            setSuccess("Profile updated successfully.");
+
+        } catch (err) {
+
+            console.log(err);
+
+            setError("Unable to update profile. Please try again.");
+
+        } finally {
+
+            setSaving(false);
+
+        }
+
+    };
+
+
+    // CANCEL EDIT
+
+    const handleCancel = () => {
+
+        setFormData(originalData);
+
+        setEditMode(false);
+
+        setError("");
+
+        setSuccess("");
+
+    };
+
+
+    // LOADING
+
+    if (loading) {
+
+        return (
+
+            <div className="pp-loading">
+
+                <div className="pp-spinner"></div>
+
+                <p>Loading your profile...</p>
 
             </div>
 
-            <form
-              className="admin-form"
-              onSubmit={handleSubmit}
-            >
+        );
 
-              <div className="form-group">
+    }
 
-                <label>
-                  Pharmacy Name
-                </label>
 
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="Enter pharmacy name"
-                />
+    // ERROR
 
-              </div>
+    if (error && !formData.name && !pharmacyId) {
 
-              <div className="form-group">
+        return (
 
-                <label>
-                  Phone Number
-                </label>
+            <div className="pp-error-page">
 
-                <input
-                  type="text"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  placeholder="Enter phone number"
-                />
+                <div className="pp-error-card">
 
-              </div>
+                    <i className="ti-alert"></i>
 
-              <div className="form-group">
+                    <h3>Unable to Open Profile</h3>
 
-                <label>
-                  Address
-                </label>
+                    <p>{error}</p>
 
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleChange}
-                  placeholder="Enter pharmacy address"
-                />
-
-              </div>
-
-              <div className="form-row">
-
-                <div className="form-group">
-
-                  <label>
-                    City
-                  </label>
-
-                  <input
-                    type="text"
-                    name="city"
-                    value={formData.city}
-                    onChange={handleChange}
-                    placeholder="Enter city"
-                  />
+                    <button onClick={() => navigate("/pharmacy/dashboard")}>
+                        Back to Dashboard
+                    </button>
 
                 </div>
 
-                <div className="form-group">
+            </div>
 
-                  <label>
-                    State
-                  </label>
+        );
 
-                  <input
-                    type="text"
-                    name="state"
-                    value={formData.state}
-                    onChange={handleChange}
-                    placeholder="Enter state"
-                  />
+    }
 
-                </div>
 
-              </div>
+    return (
 
-              <div className="form-group">
+        <div className="pp-page">
 
-                <label>
-                  Country
-                </label>
+            <div className="pp-container">
 
-                <input
-                  type="text"
-                  name="country"
-                  value={formData.country}
-                  onChange={handleChange}
-                  placeholder="Enter country"
-                />
 
-              </div>
+                {/* PAGE TITLE */}
 
-              <div className="form-row">
+                <div className="pp-page-heading">
 
-                <div className="form-group">
+                    <div>
 
-                  <label>
-                    Latitude
-                  </label>
+                        <h1>My Profile</h1>
 
-                  <input
-                    type="text"
-                    name="latitude"
-                    value={formData.latitude}
-                    onChange={handleChange}
-                    placeholder="e.g. 30.9010"
-                  />
+                        <p>Manage your pharmacy information and details.</p>
+
+                    </div>
 
                 </div>
 
-                <div className="form-group">
 
-                  <label>
-                    Longitude
-                  </label>
+                {/* HERO SECTION */}
 
-                  <input
-                    type="text"
-                    name="longitude"
-                    value={formData.longitude}
-                    onChange={handleChange}
-                    placeholder="e.g. 75.8573"
-                  />
+                <div className="pp-hero">
+
+                    <div className="pp-hero-left">
+
+                        <div className="pp-avatar">
+
+                            <i className="ti-home"></i>
+
+                        </div>
+
+                        <div className="pp-hero-info">
+
+                            <span className="pp-partner-badge">
+
+                                <i className="ti-check"></i>
+
+                                Verified Pharmacy Partner
+
+                            </span>
+
+                            <h2>{formData.name || "Your Pharmacy"}</h2>
+
+                            <p>
+
+                                <i className="ti-location-pin"></i>
+
+                                {formData.city || "City not added"}
+
+                                {formData.state && `, ${formData.state}`}
+
+                            </p>
+
+                        </div>
+
+                    </div>
 
                 </div>
 
-              </div>
 
-              <button
-                type="button"
-                className="admin-dashboard-action"
-                onClick={handleLocation}
-              >
-                📍 Use My Location
-              </button>
+                {/* ALERT MESSAGES */}
 
-              <button
-                type="submit"
-                className="admin-form-submit"
-                disabled={saving}
-              >
-                {saving
-                  ? "Saving..."
-                  : "Save Pharmacy Profile"}
-              </button>
+                {error && (
 
-            </form>
+                    <div className="pp-alert pp-alert-error">
 
-          </div>
+                        <i className="ti-alert"></i>
+
+                        {error}
+
+                    </div>
+
+                )}
+
+                {success && (
+
+                    <div className="pp-alert pp-alert-success">
+
+                        <i className="ti-check"></i>
+
+                        {success}
+
+                    </div>
+
+                )}
+
+
+                {/* MAIN CONTENT */}
+
+                <div className="pp-content">
+
+
+                    {/* PROFILE FORM */}
+
+                    <div className="pp-main-card">
+
+                        <div className="pp-card-heading">
+
+                            <div>
+
+                                <h3>Pharmacy Information</h3>
+
+                                <p>View and update your pharmacy details.</p>
+
+                            </div>
+
+                            {!editMode && (
+
+                                <button
+                                    className="pp-edit-btn"
+                                    onClick={() => {
+                                        setEditMode(true);
+                                        setError("");
+                                        setSuccess("");
+                                    }}
+                                >
+
+                                    <i className="ti-pencil"></i>
+
+                                    Edit Profile
+
+                                </button>
+
+                            )}
+
+                        </div>
+
+
+                        <form onSubmit={handleSubmit}>
+
+                            <div className="pp-form-grid">
+
+
+                                {/* PHARMACY NAME */}
+
+                                <div className="pp-form-group">
+
+                                    <label>Pharmacy Name</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-home"></i>
+
+                                        <input
+                                            type="text"
+                                            name="name"
+                                            value={formData.name}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Enter pharmacy name"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* PHONE */}
+
+                                <div className="pp-form-group">
+
+                                    <label>Phone Number</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-mobile"></i>
+
+                                        <input
+                                            type="tel"
+                                            name="phone"
+                                            value={formData.phone}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            maxLength="10"
+                                            placeholder="Enter phone number"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* ADDRESS */}
+
+                                <div className="pp-form-group pp-full-width">
+
+                                    <label>Full Address</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-location-pin"></i>
+
+                                        <input
+                                            type="text"
+                                            name="address"
+                                            value={formData.address}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Enter complete address"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* CITY */}
+
+                                <div className="pp-form-group">
+
+                                    <label>City</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-map"></i>
+
+                                        <input
+                                            type="text"
+                                            name="city"
+                                            value={formData.city}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Enter city"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* STATE */}
+
+                                <div className="pp-form-group">
+
+                                    <label>State</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-map-alt"></i>
+
+                                        <input
+                                            type="text"
+                                            name="state"
+                                            value={formData.state}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Enter state"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* COUNTRY */}
+
+                                <div className="pp-form-group">
+
+                                    <label>Country</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-world"></i>
+
+                                        <input
+                                            type="text"
+                                            name="country"
+                                            value={formData.country}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Enter country"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* LATITUDE */}
+
+                                <div className="pp-form-group">
+
+                                    <label>Latitude</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-location-arrow"></i>
+
+                                        <input
+                                            type="text"
+                                            name="latitude"
+                                            value={formData.latitude}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Latitude"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                                {/* LONGITUDE */}
+
+                                <div className="pp-form-group">
+
+                                    <label>Longitude</label>
+
+                                    <div className="pp-input-wrapper">
+
+                                        <i className="ti-location-arrow"></i>
+
+                                        <input
+                                            type="text"
+                                            name="longitude"
+                                            value={formData.longitude}
+                                            onChange={handleChange}
+                                            disabled={!editMode}
+                                            placeholder="Longitude"
+                                        />
+
+                                    </div>
+
+                                </div>
+
+
+                            </div>
+
+
+                            {/* LOCATION BUTTON */}
+
+                            {editMode && (
+
+                                <button
+                                    type="button"
+                                    className="pp-location-btn"
+                                    onClick={getCurrentLocation}
+                                >
+
+                                    <i className="ti-target"></i>
+
+                                    Use My Current Location
+
+                                </button>
+
+                            )}
+
+
+                            {/* FORM ACTIONS */}
+
+                            {editMode && (
+
+                                <div className="pp-form-actions">
+
+                                    <button
+                                        type="button"
+                                        className="pp-cancel-btn"
+                                        onClick={handleCancel}
+                                        disabled={saving}
+                                    >
+
+                                        Cancel
+
+                                    </button>
+
+                                    <button
+                                        type="submit"
+                                        className="pp-save-btn"
+                                        disabled={saving}
+                                    >
+
+                                        {saving ? (
+
+                                            <>
+                                                <span className="pp-button-spinner"></span>
+                                                Saving...
+                                            </>
+
+                                        ) : (
+
+                                            <>
+                                                <i className="ti-check"></i>
+                                                Save Changes
+                                            </>
+
+                                        )}
+
+                                    </button>
+
+                                </div>
+
+                            )}
+
+                        </form>
+
+                    </div>
+
+
+                    {/* SIDEBAR */}
+
+                    <div className="pp-sidebar">
+
+
+                        {/* ACCOUNT OVERVIEW */}
+
+                        <div className="pp-side-card">
+
+                            <h3>Account Overview</h3>
+
+                            <div className="pp-overview-item">
+
+                                <div className="pp-overview-icon">
+                                    <i className="ti-check-box"></i>
+                                </div>
+
+                                <div>
+
+                                    <h4>Account Status</h4>
+
+                                    <span className="pp-status-approved">
+                                        Approved
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+
+                            <div className="pp-overview-item">
+
+                                <div className="pp-overview-icon">
+                                    <i className="ti-user"></i>
+                                </div>
+
+                                <div>
+
+                                    <h4>Account Type</h4>
+
+                                    <p>Pharmacy Partner</p>
+
+                                </div>
+
+                            </div>
+
+
+                            <div className="pp-overview-item">
+
+                                <div className="pp-overview-icon">
+                                    <i className="ti-shield"></i>
+                                </div>
+
+                                <div>
+
+                                    <h4>Verification</h4>
+
+                                    <p>Verified Account</p>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+
+                        {/* LOCATION SUMMARY */}
+
+                        <div className="pp-side-card">
+
+                            <h3>Location Summary</h3>
+
+                            <div className="pp-location-summary">
+
+                                <i className="ti-map-alt"></i>
+
+                                <div>
+
+                                    <h4>{formData.city || "City not added"}</h4>
+
+                                    <p>
+                                        {formData.state || "State not added"}
+                                        {formData.country && `, ${formData.country}`}
+                                    </p>
+
+                                </div>
+
+                            </div>
+
+                            {formData.latitude && formData.longitude && (
+
+                                <a
+                                    href={`https://www.google.com/maps?q=${formData.latitude},${formData.longitude}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="pp-map-link"
+                                >
+
+                                    View on Google Maps
+
+                                    <i className="ti-arrow-top-right"></i>
+
+                                </a>
+
+                            )}
+
+                        </div>
+
+
+                        {/* HELP */}
+
+                        <div className="pp-help-card">
+
+                            <div className="pp-help-icon">
+
+                                <i className="ti-headphone-alt"></i>
+
+                            </div>
+
+                            <h3>Need Help?</h3>
+
+                            <p>
+                                Having trouble with your pharmacy profile?
+                                Contact our support team for assistance.
+                            </p>
+
+                            <button onClick={() => navigate("/contact")}>
+
+                                Contact Support
+
+                                <i className="ti-arrow-right"></i>
+
+                            </button>
+
+                        </div>
+
+
+                    </div>
+
+                </div>
+
+            </div>
 
         </div>
 
-      </div>
+    );
 
-    </main>
-  );
 }
 
 export default PharmacyProfile;

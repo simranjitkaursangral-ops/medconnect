@@ -2,290 +2,287 @@ import { Link } from "react-router-dom";
 
 function Home() {
   return (
-    <main className="home-page">
+    <main className="mc-home">
 
-      <section className="home-hero">
+      {/* HERO SECTION */}
+      <section className="mc-hero">
+        <div className="mc-hero-container">
 
-        <div className="home-hero-container">
+          <div className="mc-hero-content">
 
-          <div className="home-hero-content">
-
-            <span className="home-badge">
-              💊 MEDICINE AVAILABILITY FINDER
+            <span className="mc-eyebrow">
+              HEALTHCARE, MADE SIMPLER
             </span>
 
             <h1>
-              Find the medicine
+              The right medicine.
               <br />
-              you need, <span>when you need it.</span>
+              <span>Without the search.</span>
             </h1>
 
             <p>
-              Search for medicines available at nearby pharmacies,
-              check availability, send requests, and upload
-              prescriptions from one simple platform.
+              Finding essential medicines shouldn't be difficult.
+              Search for medicines, check their availability and
+              connect with pharmacies through MedConnect.
             </p>
 
-            <div className="home-hero-buttons">
+            <div className="mc-hero-buttons">
 
-              <Link
-                to="/search"
-                className="home-primary-btn"
-              >
-                Find Medicine →
+              <Link to="/search" className="mc-primary-btn">
+                Find your medicine <span>→</span>
               </Link>
 
               <Link
                 to="/prescription-upload"
-                className="home-secondary-btn"
+                className="mc-secondary-btn"
               >
-                Upload Prescription
+                Upload prescription ↗
               </Link>
 
             </div>
 
-            <div className="home-trust">
-
-              <div className="home-trust-item">
-                <span>✓</span>
-                Verified pharmacies
-              </div>
-
-              <div className="home-trust-item">
-                <span>✓</span>
-                Real-time availability
-              </div>
-
-              <div className="home-trust-item">
-                <span>✓</span>
-                Easy medicine requests
-              </div>
-
+            <div className="mc-hero-caption">
+              A convenient way to manage your medicine needs.
             </div>
 
           </div>
 
-          <div className="home-hero-visual">
+          {/* SIMPLE TYPOGRAPHIC VISUAL */}
+          <div className="mc-hero-visual">
 
-            <div className="home-card-main">
-
-              <div className="home-card-top">
-                <span>Medicine Search</span>
-                <span className="home-live">
-                  ● Live
-                </span>
-              </div>
-
-              <div className="home-search-box">
-                <span>🔍</span>
-                <span>Search medicine...</span>
-              </div>
-
-              <div className="home-medicine-card">
-
-                <div className="home-medicine-icon">
-                  💊
-                </div>
-
-                <div className="home-medicine-info">
-                  <strong>Paracetamol 500mg</strong>
-                  <span>Tablet • Pain Relief</span>
-                </div>
-
-                <div className="home-available">
-                  Available
-                </div>
-
-              </div>
-
-              <div className="home-pharmacy-card">
-
-                <div className="home-pharmacy-icon">
-                  🏥
-                </div>
-
-                <div>
-                  <strong>Nearby Pharmacy</strong>
-                  <span>0.8 km away</span>
-                </div>
-
-                <span className="home-arrow">
-                  →
-                </span>
-
-              </div>
-
+            <div className="mc-visual-circle">
+              <span>Rx</span>
             </div>
 
-            <div className="home-floating-card home-floating-one">
-              <span>📍</span>
-              <div>
-                <strong>Nearby</strong>
-                <small>Pharmacies</small>
-              </div>
+            <div className="mc-visual-text">
+              <span>MEDCONNECT</span>
+              <h2>
+                Better access.
+                <br />
+                Better care.
+              </h2>
+              <p>
+                Making medicine access
+                simpler and more convenient.
+              </p>
             </div>
 
-            <div className="home-floating-card home-floating-two">
-              <span>✓</span>
-              <div>
-                <strong>Medicine</strong>
-                <small>Available</small>
-              </div>
-            </div>
+            <div className="mc-visual-decoration"></div>
 
           </div>
 
         </div>
+      </section>
+
+
+      {/* HIGHLIGHT STRIP */}
+      <section className="mc-highlight-strip">
+
+        <div className="mc-highlight-item">
+          <span>01</span>
+          <p>Search medicines</p>
+        </div>
+
+        <div className="mc-highlight-item">
+          <span>02</span>
+          <p>Check availability</p>
+        </div>
+
+        <div className="mc-highlight-item">
+          <span>03</span>
+          <p>Get assistance</p>
+        </div>
 
       </section>
 
-      <section className="home-features">
 
-        <div className="home-section-heading">
+      {/* SERVICES */}
+      <section className="mc-services">
 
-          <span>WHAT YOU CAN DO</span>
+        <div className="mc-services-heading">
 
-          <h2>
-            Everything you need to find your medicine
-          </h2>
+          <div>
+            <span className="mc-section-label">
+              WHAT WE OFFER
+            </span>
+
+            <h2>
+              Healthcare access,
+              <br />
+              <span>made convenient.</span>
+            </h2>
+          </div>
 
           <p>
-            MedConnect connects users with pharmacies and
-            makes medicine availability easier to check.
+            Everything you need to make your medicine search
+            easier, all through one simple platform.
           </p>
 
         </div>
 
-        <div className="home-feature-grid">
 
-          <div className="home-feature-card">
-            <div className="home-feature-icon">🔍</div>
-            <h3>Find Medicine</h3>
-            <p>
-              Search for a medicine and discover pharmacies
-              where it is currently available.
-            </p>
-            <Link to="/search">Search Medicine →</Link>
-          </div>
+        <div className="mc-service-grid">
 
-          <div className="home-feature-card">
-            <div className="home-feature-icon">📍</div>
-            <h3>Nearby Pharmacies</h3>
-            <p>
-              Find pharmacies near your location and
-              compare their medicine availability.
-            </p>
-            <Link to="/search">Find Nearby →</Link>
-          </div>
+          <Link to="/search" className="mc-service-card">
 
-          <div className="home-feature-card">
-            <div className="home-feature-icon">📋</div>
-            <h3>Request Medicine</h3>
-            <p>
-              Can't find your medicine? Send a request
-              directly to a selected pharmacy.
-            </p>
-            <Link to="/request-medicine">
-              Make Request →
-            </Link>
-          </div>
+            <span className="mc-card-number">01</span>
 
-          <div className="home-feature-card">
-            <div className="home-feature-icon">📄</div>
-            <h3>Upload Prescription</h3>
-            <p>
-              Upload your prescription and send it to a
-              pharmacy for review.
-            </p>
-            <Link to="/prescription-upload">
-              Upload Now →
-            </Link>
-          </div>
-
-        </div>
-
-      </section>
-
-      <section className="home-how">
-
-        <div className="home-section-heading">
-
-          <span>HOW IT WORKS</span>
-
-          <h2>
-            Find your medicine in four simple steps
-          </h2>
-
-        </div>
-
-        <div className="home-steps">
-
-          <div className="home-step">
-            <div className="home-step-number">01</div>
             <div>
-              <h3>Search</h3>
+              <h3>Medicine Search</h3>
               <p>
-                Enter the name of the medicine you need.
+                Search for medicines and check their
+                availability at registered pharmacies.
               </p>
             </div>
-          </div>
 
-          <div className="home-step">
-            <div className="home-step-number">02</div>
-            <div>
-              <h3>Compare</h3>
-              <p>
-                Check available pharmacies and stock.
-              </p>
-            </div>
-          </div>
+            <span className="mc-card-arrow">↗</span>
 
-          <div className="home-step">
-            <div className="home-step-number">03</div>
-            <div>
-              <h3>Locate</h3>
-              <p>
-                Find the pharmacy closest to you.
-              </p>
-            </div>
-          </div>
-
-          <div className="home-step">
-            <div className="home-step-number">04</div>
-            <div>
-              <h3>Request</h3>
-              <p>
-                Request the medicine when it is unavailable.
-              </p>
-            </div>
-          </div>
-
-        </div>
-
-      </section>
-
-      <section className="home-cta">
-
-        <div className="home-cta-content">
-
-          <span>MEDCONNECT</span>
-
-          <h2>
-            Don't waste time searching everywhere.
-          </h2>
-
-          <p>
-            Find available medicines and nearby pharmacies
-            from one convenient platform.
-          </p>
-
-          <Link
-            to="/search"
-            className="home-cta-btn"
-          >
-            Search Medicine →
           </Link>
 
+
+          <Link to="/request-medicine" className="mc-service-card">
+
+            <span className="mc-card-number">02</span>
+
+            <div>
+              <h3>Medicine Requests</h3>
+              <p>
+                Request medicines when the product
+                you need is currently unavailable.
+              </p>
+            </div>
+
+            <span className="mc-card-arrow">↗</span>
+
+          </Link>
+
+
+          <Link
+            to="/prescription-upload"
+            className="mc-service-card"
+          >
+
+            <span className="mc-card-number">03</span>
+
+            <div>
+              <h3>Prescription Support</h3>
+              <p>
+                Share your prescription with a pharmacy
+                for review and further assistance.
+              </p>
+            </div>
+
+            <span className="mc-card-arrow">↗</span>
+
+          </Link>
+
+
+          <div className="mc-service-card mc-service-static">
+
+            <span className="mc-card-number">04</span>
+
+            <div>
+              <h3>Pharmacy Connection</h3>
+              <p>
+                Connect with registered pharmacy partners
+                for your medicine requirements.
+              </p>
+            </div>
+
+            <span className="mc-card-arrow">+</span>
+
+          </div>
+
+        </div>
+
+      </section>
+
+
+      {/* HOW IT WORKS */}
+      <section className="mc-process">
+
+        <div className="mc-process-intro">
+
+          <span className="mc-section-label">
+            HOW IT WORKS
+          </span>
+
+          <h2>
+            Simple steps.
+            <br />
+            <span>Less hassle.</span>
+          </h2>
+
+          <p>
+            MedConnect makes it easier to find medicines
+            and get connected with pharmacies.
+          </p>
+
+          <Link to="/search" className="mc-process-link">
+            Start searching →
+          </Link>
+
+        </div>
+
+
+        <div className="mc-steps">
+
+          <div className="mc-step">
+            <span>01</span>
+            <h3>Search</h3>
+            <p>Enter the medicine name.</p>
+          </div>
+
+          <div className="mc-step">
+            <span>02</span>
+            <h3>Check</h3>
+            <p>Explore available medicines.</p>
+          </div>
+
+          <div className="mc-step">
+            <span>03</span>
+            <h3>Connect</h3>
+            <p>Choose a pharmacy.</p>
+          </div>
+
+          <div className="mc-step">
+            <span>04</span>
+            <h3>Get Support</h3>
+            <p>Follow up on your request.</p>
+          </div>
+
+        </div>
+
+      </section>
+
+
+      {/* FINAL CTA */}
+      <section className="mc-final-section">
+
+        <div className="mc-final-content">
+
+          <span>YOUR HEALTH MATTERS</span>
+
+          <h2>
+            Finding medicines
+            <br />
+            can be simpler.
+          </h2>
+
+          <p>
+            Start your search with MedConnect
+            and make your medicine journey easier.
+          </p>
+
+          <Link to="/search" className="mc-final-button">
+            Explore medicines <span>→</span>
+          </Link>
+
+        </div>
+
+        <div className="mc-final-side">
+          <span>MC.</span>
+          <p>Care that connects.</p>
         </div>
 
       </section>

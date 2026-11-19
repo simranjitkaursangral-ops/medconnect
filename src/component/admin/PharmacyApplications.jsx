@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import {
   collection,
@@ -5,23 +6,15 @@ import {
   getDocs,
   updateDoc
 } from "firebase/firestore";
+
 import { db } from "../../firebase/Firebase";
 
 function PharmacyApplications() {
-  const [applications, setApplications] =
-    useState([]);
-
-  const [filter, setFilter] =
-    useState("all");
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [processingId, setProcessingId] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
+  const [applications, setApplications] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState("");
+  const [error, setError] = useState("");
 
   const loadApplications = async () => {
     try {
@@ -32,27 +25,22 @@ function PharmacyApplications() {
         collection(db, "pharmacies")
       );
 
-      const data = snapshot.docs.map(
-        (item) => ({
-          id: item.id,
-          ...item.data()
-        })
-      );
+      const data = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data()
+      }));
 
       data.sort((a, b) => {
-        const aTime =
-          a.createdAt?.seconds || 0;
-
-        const bTime =
-          b.createdAt?.seconds || 0;
+        const aTime = a.createdAt?.seconds || 0;
+        const bTime = b.createdAt?.seconds || 0;
 
         return bTime - aTime;
       });
 
       setApplications(data);
+
     } catch (err) {
       console.error(err);
-
       setError(
         err.message ||
         "Unable to load pharmacy applications."
@@ -70,16 +58,16 @@ function PharmacyApplications() {
     application,
     status
   ) => {
+    if (
+      status !== "approved" &&
+      status !== "rejected"
+    ) {
+      return;
+    }
+
     try {
       setProcessingId(application.id);
       setError("");
-
-      if (
-        status !== "approved" &&
-        status !== "rejected"
-      ) {
-        return;
-      }
 
       const pharmacyRef = doc(
         db,
@@ -106,13 +94,11 @@ function PharmacyApplications() {
       setApplications((previous) =>
         previous.map((item) =>
           item.id === application.id
-            ? {
-                ...item,
-                status
-              }
+            ? { ...item, status }
             : item
         )
       );
+
     } catch (err) {
       console.error(err);
 
@@ -125,73 +111,55 @@ function PharmacyApplications() {
     }
   };
 
-  const filteredApplications =
-    applications.filter((application) => {
-      if (filter === "all") {
-        return true;
-      }
+  const filteredApplications = applications.filter(
+    (application) => {
+      if (filter === "all") return true;
 
-      return (
-        application.status === filter
-      );
-    });
+      return application.status === filter;
+    }
+  );
 
-  const pendingCount =
-    applications.filter(
-      (item) =>
-        item.status === "pending"
-    ).length;
+  const pendingCount = applications.filter(
+    (item) => item.status === "pending"
+  ).length;
 
-  const approvedCount =
-    applications.filter(
-      (item) =>
-        item.status === "approved"
-    ).length;
+  const approvedCount = applications.filter(
+    (item) => item.status === "approved"
+  ).length;
 
-  const rejectedCount =
-    applications.filter(
-      (item) =>
-        item.status === "rejected"
-    ).length;
+  const rejectedCount = applications.filter(
+    (item) => item.status === "rejected"
+  ).length;
 
   if (loading) {
     return (
       <div className="admin-loading">
         <div className="loading-spinner"></div>
-
-        <h3>
-          Loading pharmacy applications...
-        </h3>
+        <h3>Loading pharmacy applications...</h3>
       </div>
     );
   }
 
   return (
     <div className="admin-page">
-
       <div className="admin-page-container">
 
         <div className="admin-hero">
-
           <div className="admin-hero-content">
 
             <span className="section-badge">
               PHARMACY PARTNERS
             </span>
 
-            <h1>
-              Pharmacy Applications
-            </h1>
+            <h1>Pharmacy Applications</h1>
 
             <p>
-              Review pharmacy partner
-              applications and verify their
-              submitted information before
-              approval.
+              Review pharmacy partner applications
+              and verify their submitted information
+              before approval.
             </p>
 
           </div>
-
         </div>
 
         {error && (
@@ -200,84 +168,47 @@ function PharmacyApplications() {
           </div>
         )}
 
+        {/* APPLICATION STATISTICS */}
+
         <div className="admin-dashboard-stats">
 
           <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              🏥
-            </div>
-
+            <div className="admin-stat-icon">🏥</div>
             <div>
-              <span>
-                Total Applications
-              </span>
-
-              <strong>
-                {applications.length}
-              </strong>
+              <span>Total Applications</span>
+              <strong>{applications.length}</strong>
             </div>
-
           </div>
 
           <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              ⏳
-            </div>
-
+            <div className="admin-stat-icon">⏳</div>
             <div>
-              <span>
-                Pending
-              </span>
-
-              <strong>
-                {pendingCount}
-              </strong>
+              <span>Pending</span>
+              <strong>{pendingCount}</strong>
             </div>
-
           </div>
 
           <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              ✓
-            </div>
-
+            <div className="admin-stat-icon">✓</div>
             <div>
-              <span>
-                Approved
-              </span>
-
-              <strong>
-                {approvedCount}
-              </strong>
+              <span>Approved</span>
+              <strong>{approvedCount}</strong>
             </div>
-
           </div>
 
           <div className="admin-stat-card">
-
-            <div className="admin-stat-icon">
-              ✕
-            </div>
-
+            <div className="admin-stat-icon">✕</div>
             <div>
-              <span>
-                Rejected
-              </span>
-
-              <strong>
-                {rejectedCount}
-              </strong>
+              <span>Rejected</span>
+              <strong>{rejectedCount}</strong>
             </div>
-
           </div>
 
         </div>
 
-        <div className="admin-form-container">
+        {/* PHARMACY APPLICATIONS */}
 
+        <div className="admin-form-container">
           <div className="admin-form-card">
 
             <div className="admin-form-header">
@@ -287,97 +218,52 @@ function PharmacyApplications() {
               </div>
 
               <div>
-                <h2>
-                  Registered Pharmacies
-                </h2>
-
+                <h2>Registered Pharmacies</h2>
                 <p>
-                  Review submitted pharmacy
-                  details and licence documents.
+                  Review submitted pharmacy details
+                  and licence numbers.
                 </p>
               </div>
 
             </div>
+
+            {/* FILTERS */}
 
             <div className="application-filters">
 
-              <button
-                type="button"
-                className={
-                  filter === "all"
-                    ? "application-filter active"
-                    : "application-filter"
-                }
-                onClick={() =>
-                  setFilter("all")
-                }
-              >
-                All
-              </button>
-
-              <button
-                type="button"
-                className={
-                  filter === "pending"
-                    ? "application-filter active"
-                    : "application-filter"
-                }
-                onClick={() =>
-                  setFilter("pending")
-                }
-              >
-                Pending
-              </button>
-
-              <button
-                type="button"
-                className={
-                  filter === "approved"
-                    ? "application-filter active"
-                    : "application-filter"
-                }
-                onClick={() =>
-                  setFilter("approved")
-                }
-              >
-                Approved
-              </button>
-
-              <button
-                type="button"
-                className={
-                  filter === "rejected"
-                    ? "application-filter active"
-                    : "application-filter"
-                }
-                onClick={() =>
-                  setFilter("rejected")
-                }
-              >
-                Rejected
-              </button>
+              {["all", "pending", "approved", "rejected"].map(
+                (item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={
+                      filter === item
+                        ? "application-filter active"
+                        : "application-filter"
+                    }
+                    onClick={() => setFilter(item)}
+                  >
+                    {item.charAt(0).toUpperCase() +
+                      item.slice(1)}
+                  </button>
+                )
+              )}
 
             </div>
 
-            {filteredApplications.length ===
-            0 ? (
+            {/* EMPTY STATE */}
+
+            {filteredApplications.length === 0 ? (
               <div className="application-empty">
-
-                <div>
-                  🏥
-                </div>
-
-                <h3>
-                  No applications found
-                </h3>
-
+                <div>🏥</div>
+                <h3>No applications found</h3>
                 <p>
-                  There are no pharmacy
-                  applications in this category.
+                  There are no pharmacy applications
+                  in this category.
                 </p>
-
               </div>
             ) : (
+
               <div className="application-list">
 
                 {filteredApplications.map(
@@ -388,10 +274,11 @@ function PharmacyApplications() {
                       key={application.id}
                     >
 
+                      {/* HEADER */}
+
                       <div className="application-card-header">
 
                         <div>
-
                           <span className="application-label">
                             PHARMACY
                           </span>
@@ -400,25 +287,24 @@ function PharmacyApplications() {
                             {application.name ||
                               "Unnamed Pharmacy"}
                           </h3>
-
                         </div>
 
                         <span
-                          className={`application-status ${application.status || "pending"}`}
+                          className={`application-status ${
+                            application.status || "pending"
+                          }`}
                         >
-                          {application.status ||
-                            "pending"}
+                          {application.status || "pending"}
                         </span>
 
                       </div>
 
+                      {/* PHARMACY DETAILS */}
+
                       <div className="application-details">
 
                         <div>
-                          <span>
-                            Owner
-                          </span>
-
+                          <span>Owner</span>
                           <strong>
                             {application.ownerName ||
                               "Not provided"}
@@ -426,10 +312,7 @@ function PharmacyApplications() {
                         </div>
 
                         <div>
-                          <span>
-                            Email
-                          </span>
-
+                          <span>Email</span>
                           <strong>
                             {application.email ||
                               "Not provided"}
@@ -437,10 +320,7 @@ function PharmacyApplications() {
                         </div>
 
                         <div>
-                          <span>
-                            Phone
-                          </span>
-
+                          <span>Phone</span>
                           <strong>
                             {application.phone ||
                               "Not provided"}
@@ -448,10 +328,7 @@ function PharmacyApplications() {
                         </div>
 
                         <div>
-                          <span>
-                            Licence Number
-                          </span>
-
+                          <span>Licence Number</span>
                           <strong>
                             {application.licenceNumber ||
                               "Not provided"}
@@ -459,10 +336,7 @@ function PharmacyApplications() {
                         </div>
 
                         <div>
-                          <span>
-                            City
-                          </span>
-
+                          <span>City</span>
                           <strong>
                             {application.city ||
                               "Not provided"}
@@ -470,10 +344,7 @@ function PharmacyApplications() {
                         </div>
 
                         <div>
-                          <span>
-                            State
-                          </span>
-
+                          <span>State</span>
                           <strong>
                             {application.state ||
                               "Not provided"}
@@ -481,60 +352,41 @@ function PharmacyApplications() {
                         </div>
 
                         <div className="application-address">
-
-                          <span>
-                            Address
-                          </span>
-
+                          <span>Address</span>
                           <strong>
                             {application.address ||
                               "Not provided"}
                           </strong>
-
                         </div>
 
                       </div>
+
+                      {/* LICENCE INFORMATION */}
 
                       <div className="application-document">
 
                         <div>
-
-                          <span>
-                            Licence Document
-                          </span>
+                          <span>Pharmacy Licence Information</span>
 
                           <strong>
-                            {application.licenceFileName ||
-                              "Document not available"}
+                            {application.licenceNumber
+                              ? "Licence number submitted"
+                              : "Licence number not provided"}
                           </strong>
-
                         </div>
-
-                        {application.licenceFileUrl && (
-                          <a
-                            href={
-                              application.licenceFileUrl
-                            }
-                            target="_blank"
-                            rel="noreferrer"
-                            className="application-document-btn"
-                          >
-                            View Licence
-                          </a>
-                        )}
 
                       </div>
 
+                      {/* ACTION BUTTONS */}
+
                       <div className="application-actions">
 
-                        {application.status !==
-                          "approved" && (
+                        {application.status !== "approved" && (
                           <button
                             type="button"
                             className="application-approve-btn"
                             disabled={
-                              processingId ===
-                              application.id
+                              processingId === application.id
                             }
                             onClick={() =>
                               updateApplicationStatus(
@@ -543,21 +395,18 @@ function PharmacyApplications() {
                               )
                             }
                           >
-                            {processingId ===
-                            application.id
+                            {processingId === application.id
                               ? "Processing..."
                               : "Approve"}
                           </button>
                         )}
 
-                        {application.status !==
-                          "rejected" && (
+                        {application.status !== "rejected" && (
                           <button
                             type="button"
                             className="application-reject-btn"
                             disabled={
-                              processingId ===
-                              application.id
+                              processingId === application.id
                             }
                             onClick={() =>
                               updateApplicationStatus(
@@ -566,14 +415,15 @@ function PharmacyApplications() {
                               )
                             }
                           >
-                            Reject
+                            {processingId === application.id
+                              ? "Processing..."
+                              : "Reject"}
                           </button>
                         )}
 
                       </div>
 
                     </div>
-
                   )
                 )}
 
@@ -581,11 +431,9 @@ function PharmacyApplications() {
             )}
 
           </div>
-
         </div>
 
       </div>
-
     </div>
   );
 }
