@@ -22,8 +22,10 @@ function PharmacyNotifications({ pharmacyId }) {
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
 
+  // Load pharmacy notifications in real time
   useEffect(() => {
     if (!pharmacyId) {
+      setNotifications([]);
       setLoading(false);
       return;
     }
@@ -62,10 +64,12 @@ function PharmacyNotifications({ pharmacyId }) {
     return () => unsubscribe();
   }, [pharmacyId]);
 
+  // Count unread notifications
   const unreadCount = notifications.filter(
     (item) => !item.isRead
   ).length;
 
+  // Apply notification filters
   const filteredNotifications = notifications.filter((item) => {
     if (filter === "Unread") return !item.isRead;
     if (filter === "Read") return item.isRead;
@@ -73,6 +77,7 @@ function PharmacyNotifications({ pharmacyId }) {
     return true;
   });
 
+  // Mark one notification as read
   const markAsRead = async (notificationId) => {
     try {
       await updateDoc(
@@ -82,11 +87,25 @@ function PharmacyNotifications({ pharmacyId }) {
           readAt: serverTimestamp()
         }
       );
+
+      // Update the local state after successful Firestore update
+      setNotifications((previous) =>
+        previous.map((item) =>
+          item.id === notificationId
+            ? { ...item, isRead: true }
+            : item
+        )
+      );
+
+      return true;
+
     } catch (error) {
       console.error("Unable to mark notification as read:", error);
+      return false;
     }
   };
 
+  // Mark all notifications as read
   const markAllAsRead = async () => {
     try {
       const unreadNotifications = notifications.filter(
@@ -108,16 +127,37 @@ function PharmacyNotifications({ pharmacyId }) {
       });
 
       await batch.commit();
+
+      // Update local state after successful batch operation
+      setNotifications((previous) =>
+        previous.map((item) => ({
+          ...item,
+          isRead: true
+        }))
+      );
+
     } catch (error) {
       console.error("Unable to mark all as read:", error);
+      alert("Unable to mark notifications as read. Please try again.");
     }
   };
 
+  // Open request and mark notification as read
   const handleViewRequest = async (notification) => {
-    if (!notification.requestId) return;
+    if (!notification.requestId) {
+      alert("Request information is not available.");
+      return;
+    }
 
     if (!notification.isRead) {
-      await markAsRead(notification.id);
+      const updated = await markAsRead(notification.id);
+
+      if (!updated) {
+        alert(
+          "Unable to mark notification as read. Please check Firestore permissions."
+        );
+        return;
+      }
     }
 
     navigate("/pharmacy-requests", {
@@ -127,6 +167,7 @@ function PharmacyNotifications({ pharmacyId }) {
     });
   };
 
+  // Format notification time
   const formatTime = (timestamp) => {
     if (!timestamp?.toDate) return "Recently";
 
@@ -141,9 +182,12 @@ function PharmacyNotifications({ pharmacyId }) {
   return (
     <section className="pharmacy-notifications">
 
+      {/* Heading */}
       <div className="pharmacy-notification-heading">
+
         <div>
           <h2>Notifications</h2>
+
           <p>
             Keep track of new medicine requests from customers.
           </p>
@@ -152,11 +196,14 @@ function PharmacyNotifications({ pharmacyId }) {
         <div className="pharmacy-unread-count">
           {unreadCount} Unread
         </div>
+
       </div>
 
+      {/* Toolbar */}
       <div className="pharmacy-notification-toolbar">
 
         <div className="pharmacy-notification-filters">
+
           {["All", "Unread", "Read"].map((item) => (
             <button
               key={item}
@@ -167,6 +214,7 @@ function PharmacyNotifications({ pharmacyId }) {
               {item}
             </button>
           ))}
+
         </div>
 
         {unreadCount > 0 && (
@@ -181,6 +229,7 @@ function PharmacyNotifications({ pharmacyId }) {
 
       </div>
 
+      {/* Loading */}
       {loading ? (
 
         <div className="pharmacy-notification-empty">
@@ -189,13 +238,20 @@ function PharmacyNotifications({ pharmacyId }) {
 
       ) : filteredNotifications.length === 0 ? (
 
+        /* Empty State */
         <div className="pharmacy-notification-empty">
+
           <h3>No notifications found</h3>
-          <p>New medicine requests will appear here.</p>
+
+          <p>
+            New medicine requests will appear here.
+          </p>
+
         </div>
 
       ) : (
 
+        /* Notification List */
         <div className="pharmacy-notification-list">
 
           {filteredNotifications.map((item) => (
@@ -207,26 +263,35 @@ function PharmacyNotifications({ pharmacyId }) {
               }`}
             >
 
+              {/* Unread Indicator */}
               <div className="pharmacy-notification-dot">
                 {!item.isRead && <span />}
               </div>
 
+              {/* Notification Content */}
               <div className="pharmacy-notification-content">
 
                 <h3>New Medicine Request</h3>
 
                 <p>
-                  <strong>{item.userName || "Customer"}</strong>
+                  <strong>
+                    {item.userName || "Customer"}
+                  </strong>
+
                   {" "}has requested{" "}
+
                   <strong>
                     {item.medicineName || "a medicine"}
                   </strong>.
                 </p>
 
-                <span>{formatTime(item.createdAt)}</span>
+                <span>
+                  {formatTime(item.createdAt)}
+                </span>
 
               </div>
 
+              {/* Actions */}
               <div className="pharmacy-notification-actions">
 
                 <button

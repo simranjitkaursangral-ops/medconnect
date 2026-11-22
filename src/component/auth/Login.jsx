@@ -1,13 +1,17 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+
 import {
   signInWithEmailAndPassword,
   signOut
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+
+import {
+  doc,
+  getDoc
+} from "firebase/firestore";
 
 import { auth, db } from "../../firebase/Firebase";
-
 
 function Login() {
   const navigate = useNavigate();
@@ -18,12 +22,26 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // CLEAR OLD SESSION DATA
+
+  const clearSession = () => {
+    localStorage.removeItem("isLogin");
+    localStorage.removeItem("uid");
+    localStorage.removeItem("userType");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("userEmail");
+    localStorage.removeItem("pharmacyId");
+    localStorage.removeItem("pharmacyStatus");
+  };
+
+  // LOGIN FUNCTION
+
   const handleLogin = async (e) => {
     e.preventDefault();
 
     setError("");
 
-    const email = loginEmail.trim();
+    const email = loginEmail.trim().toLowerCase();
 
     if (!email || !password) {
       setError("Please enter email and password.");
@@ -33,12 +51,16 @@ function Login() {
     try {
       setLoading(true);
 
+      clearSession();
+
       console.log("========== LOGIN START ==========");
+
       console.log(
-        "🔥 FIREBASE PROJECT:",
+        "FIREBASE PROJECT:",
         auth.app.options.projectId
       );
-      console.log("🔥 LOGIN EMAIL:", email);
+
+      // FIREBASE AUTHENTICATION
 
       const userCredential =
         await signInWithEmailAndPassword(
@@ -49,12 +71,10 @@ function Login() {
 
       const user = userCredential.user;
 
-      console.log("🔥 AUTHENTICATION SUCCESS");
-      console.log("🔥 FIREBASE LOGIN UID:", user.uid);
-      console.log(
-        "🔥 FIREBASE LOGIN EMAIL:",
-        user.email
-      );
+      console.log("AUTHENTICATION SUCCESS");
+      console.log("LOGIN UID:", user.uid);
+
+      // GET USER PROFILE
 
       const userRef = doc(
         db,
@@ -62,13 +82,7 @@ function Login() {
         user.uid
       );
 
-      const userSnapshot =
-        await getDoc(userRef);
-
-      console.log(
-        "🔥 FIRESTORE PROFILE EXISTS:",
-        userSnapshot.exists()
-      );
+      const userSnapshot = await getDoc(userRef);
 
       if (!userSnapshot.exists()) {
         await signOut(auth);
@@ -80,29 +94,11 @@ function Login() {
         return;
       }
 
-      const userData =
-        userSnapshot.data();
+      const userData = userSnapshot.data();
 
-      console.log(
-        "🔥 FIRESTORE USER DATA:",
-        userData
-      );
+      console.log("USER DATA:", userData);
 
-      console.log(
-        "🔥 FIRESTORE ROLE:",
-        userData.role
-      );
-
-      console.log(
-        "🔥 FIRESTORE STATUS:",
-        userData.status
-      );
-
-      console.log(
-        "🔥 FIRESTORE PHARMACY ID:",
-        userData.pharmacyId
-      );
-
+      // VALIDATE ROLE
 
       if (
         userData.role !== "user" &&
@@ -118,8 +114,36 @@ function Login() {
         return;
       }
 
+      // ADMIN LOGIN
+
+      if (userData.role === "admin") {
+
+        localStorage.setItem("isLogin", "true");
+        localStorage.setItem("uid", user.uid);
+        localStorage.setItem("userType", "admin");
+
+        localStorage.setItem(
+          "userName",
+          userData.name || ""
+        );
+
+        localStorage.setItem(
+          "userEmail",
+          user.email || ""
+        );
+
+        console.log("ADMIN LOGIN SUCCESS");
+
+        navigate("/admin-dashboard");
+
+        return;
+      }
+
+      // PHARMACY LOGIN VALIDATION
 
       if (userData.role === "pharmacy") {
+
+        // CHECK USER STATUS
 
         if (userData.status === "pending") {
           await signOut(auth);
@@ -141,15 +165,27 @@ function Login() {
           return;
         }
 
-        if (userData.status !== "approved") {
+        if (userData.status === "suspended") {
           await signOut(auth);
 
           setError(
-            "Your pharmacy account has not been approved yet."
+            "Your pharmacy account has been suspended. Please contact MedConnect support."
           );
 
           return;
         }
+
+        if (userData.status !== "approved") {
+          await signOut(auth);
+
+          setError(
+            "Your pharmacy account has not been approved."
+          );
+
+          return;
+        }
+
+        // CHECK PHARMACY ID
 
         if (!userData.pharmacyId) {
           await signOut(auth);
@@ -160,66 +196,90 @@ function Login() {
 
           return;
         }
-      }
 
+        // FETCH ACTUAL PHARMACY DOCUMENT
 
-      if (userData.role === "admin") {
-
-        console.log(
-          "👑 PLATFORM ADMIN LOGIN"
+        const pharmacyRef = doc(
+          db,
+          "pharmacies",
+          userData.pharmacyId
         );
 
-        localStorage.setItem(
-          "isLogin",
-          "true"
+        const pharmacySnapshot = await getDoc(
+          pharmacyRef
         );
 
-        localStorage.setItem(
-          "uid",
-          user.uid
-        );
+        if (!pharmacySnapshot.exists()) {
+          await signOut(auth);
 
-        localStorage.setItem(
-          "userType",
-          "admin"
-        );
+          setError(
+            "Pharmacy information was not found. Please contact support."
+          );
 
-        localStorage.setItem(
-          "userName",
-          userData.name || ""
-        );
+          return;
+        }
 
-        localStorage.setItem(
-          "userEmail",
-          user.email || ""
-        );
+        const pharmacyData = pharmacySnapshot.data();
 
-        navigate("/admin-dashboard");
+        // VERIFY PHARMACY OWNER
 
-        return;
-      }
+        if (pharmacyData.ownerId !== user.uid) {
+          await signOut(auth);
 
+          setError(
+            "You are not authorized to access this pharmacy."
+          );
 
-      if (userData.role === "pharmacy") {
+          return;
+        }
 
-        console.log(
-          "🏥 VERIFIED PHARMACY LOGIN"
-        );
+        // VERIFY PHARMACY STATUS
 
-        localStorage.setItem(
-          "isLogin",
-          "true"
-        );
+        if (pharmacyData.status === "pending") {
+          await signOut(auth);
 
-        localStorage.setItem(
-          "uid",
-          user.uid
-        );
+          setError(
+            "Your pharmacy application is still pending approval."
+          );
 
-        localStorage.setItem(
-          "userType",
-          "pharmacy"
-        );
+          return;
+        }
+
+        if (pharmacyData.status === "rejected") {
+          await signOut(auth);
+
+          setError(
+            "Your pharmacy application has been rejected."
+          );
+
+          return;
+        }
+
+        if (pharmacyData.status === "suspended") {
+          await signOut(auth);
+
+          setError(
+            "Your pharmacy has been suspended by the administrator."
+          );
+
+          return;
+        }
+
+        if (pharmacyData.status !== "approved") {
+          await signOut(auth);
+
+          setError(
+            "Your pharmacy is not currently approved."
+          );
+
+          return;
+        }
+
+        // PHARMACY LOGIN SUCCESS
+
+        localStorage.setItem("isLogin", "true");
+        localStorage.setItem("uid", user.uid);
+        localStorage.setItem("userType", "pharmacy");
 
         localStorage.setItem(
           "userName",
@@ -236,32 +296,35 @@ function Login() {
           userData.pharmacyId
         );
 
+        localStorage.setItem(
+          "pharmacyStatus",
+          "approved"
+        );
+
+        console.log("VERIFIED PHARMACY LOGIN SUCCESS");
+
         navigate("/pharmacy-dashboard");
 
         return;
       }
 
+      // NORMAL USER LOGIN
 
       if (userData.role === "user") {
 
-        console.log(
-          "👤 NORMAL USER LOGIN"
-        );
+        if (userData.status !== "active") {
+          await signOut(auth);
 
-        localStorage.setItem(
-          "isLogin",
-          "true"
-        );
+          setError(
+            "Your account is not currently active. Please contact support."
+          );
 
-        localStorage.setItem(
-          "uid",
-          user.uid
-        );
+          return;
+        }
 
-        localStorage.setItem(
-          "userType",
-          "user"
-        );
+        localStorage.setItem("isLogin", "true");
+        localStorage.setItem("uid", user.uid);
+        localStorage.setItem("userType", "user");
 
         localStorage.setItem(
           "userName",
@@ -273,6 +336,8 @@ function Login() {
           user.email || ""
         );
 
+        console.log("NORMAL USER LOGIN SUCCESS");
+
         navigate("/");
 
         return;
@@ -280,46 +345,40 @@ function Login() {
 
     } catch (err) {
 
-      console.error(
-        "❌ LOGIN ERROR:",
-        err
-      );
+      console.error("LOGIN ERROR:", err);
 
-      console.error(
-        "❌ ERROR CODE:",
-        err.code
-      );
+      console.error("ERROR CODE:", err.code);
 
-      console.error(
-        "❌ ERROR MESSAGE:",
-        err.message
-      );
+      console.error("ERROR MESSAGE:", err.message);
+
+      clearSession();
 
       if (
-        err.code ===
-        "auth/invalid-credential"
+        err.code === "auth/invalid-credential"
       ) {
-        setError(
-          "Invalid email or password."
-        );
+        setError("Invalid email or password.");
+
       } else if (
-        err.code ===
-        "auth/user-not-found"
+        err.code === "auth/user-not-found"
       ) {
-        setError(
-          "No account found with this email."
-        );
+        setError("No account found with this email.");
+
       } else if (
-        err.code ===
-        "auth/wrong-password"
+        err.code === "auth/wrong-password"
+      ) {
+        setError("Incorrect password.");
+
+      } else if (
+        err.code === "auth/too-many-requests"
       ) {
         setError(
-          "Incorrect password."
+          "Too many login attempts. Please try again later."
         );
+
       } else {
         setError(
           err.message ||
-            "Login failed. Please try again."
+          "Login failed. Please try again."
         );
       }
 
@@ -332,6 +391,8 @@ function Login() {
     <main className="auth-page login-page">
 
       <div className="auth-container">
+
+        {/* LEFT INFORMATION SECTION */}
 
         <div className="auth-info">
 
@@ -401,6 +462,8 @@ function Login() {
 
         </div>
 
+        {/* LOGIN FORM */}
+
         <div className="auth-card">
 
           <div className="auth-card-header">
@@ -444,11 +507,10 @@ function Login() {
                 placeholder="Enter your email"
                 value={loginEmail}
                 onChange={(e) =>
-                  setLoginEmail(
-                    e.target.value
-                  )
+                  setLoginEmail(e.target.value)
                 }
                 autoComplete="email"
+                disabled={loading}
               />
 
             </div>
@@ -465,11 +527,10 @@ function Login() {
                 placeholder="Enter your password"
                 value={password}
                 onChange={(e) =>
-                  setPassword(
-                    e.target.value
-                  )
+                  setPassword(e.target.value)
                 }
                 autoComplete="current-password"
+                disabled={loading}
               />
 
             </div>

@@ -346,7 +346,7 @@ function PharmacyDashboard() {
                         <button
                             className="secondary-dashboard-btn"
                             onClick={() =>
-                                navigate("/pharmacy/profile")
+                                navigate("/pharmacy-profile")
                             }
                         >
                             View Profile

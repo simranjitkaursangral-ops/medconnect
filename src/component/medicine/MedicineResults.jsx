@@ -1,1048 +1,834 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   collection,
-  onSnapshot
+  onSnapshot,
+  query,
+  where
 } from "firebase/firestore";
-
-import {
-  Link,
-  useSearchParams
-} from "react-router-dom";
 
 import { db } from "../../firebase/Firebase";
 
-function MedicineResults() {
 
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const earthRadius = 6371;
+
+  const toRadians = (value) => (value * Math.PI) / 180;
+
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadius * c;
+}
+
+
+function MedicineResults() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   const medicineQuery = searchParams.get("medicine") || "";
-  const selectedState = searchParams.get("state") || "";
-  const selectedCity = searchParams.get("city") || "";
+  const cityQuery = searchParams.get("city") || "";
+  const stateQuery = searchParams.get("state") || "";
 
   const [medicines, setMedicines] = useState([]);
+  const [pharmacies, setPharmacies] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [sortBy, setSortBy] = useState("recommended");
+  const [sortBy, setSortBy] = useState("relevant");
+  const [availabilityFilter, setAvailabilityFilter] = useState("all");
 
-  const [availabilityFilter, setAvailabilityFilter] =
-    useState("all");
-
-  const [currentTime, setCurrentTime] = useState(Date.now());
-
-
-  // NORMALIZE TEXT
-
-  const normalizeText = (value) => {
-
-    return String(value || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
-
-  };
-
-
-  // SMART MEDICINE SEARCH
-
-  const matchesMedicine = (medicine, searchText) => {
-
-    if (!searchText.trim()) return true;
-
-    const searchableText = normalizeText([
-
-      medicine.medicineName,
-      medicine.dosage,
-      medicine.category,
-      medicine.brand,
-      medicine.description
-
-    ].join(" "));
-
-    const searchWords = searchText
-      .toLowerCase()
-      .trim()
-      .split(/\s+/);
-
-    return searchWords.every((word) =>
-      searchableText.includes(normalizeText(word))
-    );
-
-  };
-
-
-  // LOCATION FILTER
-
-  const matchesLocation = (medicine) => {
-
-    const medicineCity = normalizeText(
-      medicine.pharmacyCity
-    );
-
-    const medicineState = normalizeText(
-      medicine.pharmacyState
-    );
-
-    const searchCity = normalizeText(selectedCity);
-    const searchState = normalizeText(selectedState);
-
-    if (searchCity && medicineCity !== searchCity) {
-      return false;
-    }
-
-    if (searchState && medicineState !== searchState) {
-      return false;
-    }
-
-    return true;
-
-  };
-
-
-  // UPDATE TIME EVERY MINUTE
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
 
   useEffect(() => {
+    let medicinesLoaded = false;
+    let pharmaciesLoaded = false;
 
-    const timer = setInterval(() => {
-
-      setCurrentTime(Date.now());
-
-    }, 60000);
-
-    return () => clearInterval(timer);
-
-  }, []);
-
-
-  // REAL-TIME MEDICINE DATA
-
-  useEffect(() => {
-
-    setLoading(true);
-    setError("");
-
-    const unsubscribe = onSnapshot(
-
-      collection(db, "medicines"),
-
-      (snapshot) => {
-
-        try {
-
-          const results = [];
-
-          snapshot.docs.forEach((item) => {
-
-            const medicine = item.data();
-
-            // MEDICINE NAME FILTER
-
-            if (
-              !matchesMedicine(
-                medicine,
-                medicineQuery
-              )
-            ) {
-              return;
-            }
-
-
-            // STATE AND CITY FILTER
-
-            if (!matchesLocation(medicine)) {
-              return;
-            }
-
-
-            // USE PHARMACY DETAILS SAVED IN MEDICINE DOCUMENT
-
-            const pharmacy = {
-
-              name: medicine.pharmacyName || "Pharmacy",
-
-              address:
-                medicine.pharmacyAddress ||
-                "Address unavailable",
-
-              city: medicine.pharmacyCity || "",
-
-              state: medicine.pharmacyState || "",
-
-              phone: medicine.pharmacyPhone || ""
-
-            };
-
-
-            results.push({
-
-              id: item.id,
-
-              ...medicine,
-
-              pharmacy,
-
-              distance: null
-
-            });
-
-          });
-
-
-          setMedicines(results);
-
-          setError("");
-
-        } catch (err) {
-
-          console.error(err);
-
-          setError(
-            "Unable to process medicine results."
-          );
-
-        } finally {
-
-          setLoading(false);
-
-        }
-
-      },
-
-      (err) => {
-
-        console.error(err);
-
-        setError(
-          "Unable to load medicine inventory. Please try again."
-        );
-
+    const checkLoading = () => {
+      if (medicinesLoaded && pharmaciesLoaded) {
         setLoading(false);
-
       }
-
-    );
-
-
-    return () => unsubscribe();
-
-  }, [
-    medicineQuery,
-    selectedState,
-    selectedCity
-  ]);
-
-
-  // STOCK VERIFICATION
-
-  const getStockVerification = (medicine) => {
-
-    const quantity = Number(medicine.quantity || 0);
-
-    if (
-      quantity <= 0 ||
-      medicine.availability === "Out of Stock" ||
-      medicine.available === false
-    ) {
-
-      return {
-
-        label: "Out of Stock",
-        className: "stock-unavailable",
-        updated: "Currently unavailable",
-        verifiedTime: 0
-
-      };
-
-    }
-
-
-    const timestamp =
-      medicine.stockVerifiedAt ||
-      medicine.stockUpdatedAt;
-
-
-    if (!timestamp) {
-
-      return {
-
-        label: "Needs Confirmation",
-        className: "stock-stale",
-        updated: "Verification not available",
-        verifiedTime: 0
-
-      };
-
-    }
-
-
-    let stockDate;
-
-    if (typeof timestamp.toDate === "function") {
-
-      stockDate = timestamp.toDate();
-
-    } else {
-
-      stockDate = new Date(timestamp);
-
-    }
-
-
-    if (Number.isNaN(stockDate.getTime())) {
-
-      return {
-
-        label: "Needs Confirmation",
-        className: "stock-stale",
-        updated: "Verification date unavailable",
-        verifiedTime: 0
-
-      };
-
-    }
-
-
-    const hoursDifference =
-      (currentTime - stockDate.getTime()) /
-      (1000 * 60 * 60);
-
-
-    const formattedDate = stockDate.toLocaleString(
-      "en-IN",
-      {
-        dateStyle: "medium",
-        timeStyle: "short"
-      }
-    );
-
-
-    if (
-      hoursDifference >= 0 &&
-      hoursDifference <= 24
-    ) {
-
-      return {
-
-        label: "Recently Verified",
-        className: "stock-fresh",
-        updated: formattedDate,
-        verifiedTime: stockDate.getTime()
-
-      };
-
-    }
-
-
-    return {
-
-      label: "Needs Confirmation",
-      className: "stock-stale",
-      updated: formattedDate,
-      verifiedTime: stockDate.getTime()
-
     };
 
-  };
+    const unsubscribeMedicines = onSnapshot(
+      collection(db, "medicines"),
+      (snapshot) => {
+        const data = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data()
+        }));
 
-
-  // CHECK AVAILABILITY
-
-  const isMedicineAvailable = (medicine) => {
-
-    return (
-      Number(medicine.quantity || 0) > 0 &&
-      medicine.availability !== "Out of Stock" &&
-      medicine.available !== false
+        setMedicines(data);
+        medicinesLoaded = true;
+        checkLoading();
+      },
+      (err) => {
+        console.error("Medicine loading error:", err);
+        setError("Unable to load medicine listings.");
+        setLoading(false);
+      }
     );
 
+    // Fetch only approved pharmacies to match Firestore read permissions.
+    const approvedPharmaciesQuery = query(
+      collection(db, "pharmacies"),
+      where("status", "==", "approved")
+    );
+
+    const unsubscribePharmacies = onSnapshot(
+      approvedPharmaciesQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((document) => ({
+          id: document.id,
+          ...document.data()
+        }));
+
+        setPharmacies(data);
+        pharmaciesLoaded = true;
+        checkLoading();
+      },
+      (err) => {
+        console.error("Pharmacy loading error:", err);
+        setError("Unable to load approved pharmacy details.");
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      unsubscribeMedicines();
+      unsubscribePharmacies();
+    };
+  }, []);
+
+  const getCurrentLocation = () => {
+    setLocationError("");
+
+    if (!navigator.geolocation) {
+      setLocationError(
+        "Your browser does not support location detection."
+      );
+      return;
+    }
+
+    setLocationLoading(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        });
+
+        setLocationLoading(false);
+      },
+      (err) => {
+        console.error("Location error:", err);
+
+        setLocationLoading(false);
+
+        if (err.code === 1) {
+          setLocationError(
+            "Please allow location permission to calculate distances."
+          );
+        } else {
+          setLocationError(
+            "Unable to detect your location. Please try again."
+          );
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
   };
 
+  const getPharmacy = (medicine) => {
+    return pharmacies.find(
+      (pharmacy) => pharmacy.id === medicine.pharmacyId
+    );
+  };
 
-  // PREPARE COMPARISON RESULTS
+  const getPharmacyDetails = (medicine) => {
+    const pharmacy = getPharmacy(medicine);
 
-  const comparisonResults = useMemo(() => {
+    return {
+      ...pharmacy,
 
-    let results = medicines.map((medicine) => ({
+      name:
+        pharmacy?.name ||
+        medicine.pharmacyName ||
+        "Registered Pharmacy",
 
-      ...medicine,
+      address:
+        pharmacy?.address ||
+        medicine.pharmacyAddress ||
+        "",
 
-      stockStatus: getStockVerification(medicine),
+      city:
+        pharmacy?.city ||
+        medicine.pharmacyCity ||
+        "",
 
-      isAvailable: isMedicineAvailable(medicine)
+      state:
+        pharmacy?.state ||
+        medicine.pharmacyState ||
+        "",
 
-    }));
+      phone:
+        pharmacy?.phone ||
+        medicine.pharmacyPhone ||
+        "",
 
+      latitude: pharmacy?.latitude,
+      longitude: pharmacy?.longitude
+    };
+  };
 
-    // AVAILABILITY FILTER
+  const isApproved = (medicine) => {
+    const pharmacy = getPharmacy(medicine);
+
+    if (!pharmacy) {
+      return false;
+    }
+
+    return (
+      String(pharmacy.status || "").toLowerCase() === "approved"
+    );
+  };
+
+  const isAvailable = (medicine) => {
+    return (
+      Number(medicine.quantity) > 0 &&
+      medicine.availability !== "Out of Stock"
+    );
+  };
+
+  const getDistance = (medicine) => {
+    if (!userLocation) return null;
+
+    const pharmacy = getPharmacyDetails(medicine);
+
+    const latitude = Number(pharmacy.latitude);
+    const longitude = Number(pharmacy.longitude);
+
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      pharmacy.latitude === undefined ||
+      pharmacy.longitude === undefined ||
+      pharmacy.latitude === "" ||
+      pharmacy.longitude === ""
+    ) {
+      return null;
+    }
+
+    return calculateDistance(
+      userLocation.latitude,
+      userLocation.longitude,
+      latitude,
+      longitude
+    );
+  };
+
+  const getDiscount = (medicine) => {
+    const mrp = Number(medicine.mrp);
+    const price = Number(medicine.price);
+
+    if (
+      !Number.isFinite(mrp) ||
+      !Number.isFinite(price) ||
+      mrp <= 0 ||
+      price >= mrp
+    ) {
+      return 0;
+    }
+
+    return Math.round(((mrp - price) / mrp) * 100);
+  };
+
+  const getStockStatus = (medicine) => {
+    if (!isAvailable(medicine)) {
+      return "Out of Stock";
+    }
+
+    if (Number(medicine.quantity) <= 5) {
+      return "Only few left";
+    }
+
+    return "Available";
+  };
+
+  const getStockFreshness = (medicine) => {
+    if (medicine.stockVerificationStatus === "Fresh") {
+      return "Recently verified stock";
+    }
+
+    if (medicine.stockVerifiedAt || medicine.stockUpdatedAt) {
+      return "Stock information updated";
+    }
+
+    return "Stock verification not available";
+  };
+
+  const filteredMedicines = useMemo(() => {
+    let result = medicines.filter(isApproved);
+
+    const normalizedMedicine = medicineQuery.trim().toLowerCase();
+    const normalizedCity = cityQuery.trim().toLowerCase();
+    const normalizedState = stateQuery.trim().toLowerCase();
+
+    if (normalizedMedicine) {
+      result = result.filter((item) => {
+        const searchableText = [
+          item.medicineName,
+          item.dosage,
+          item.category,
+          item.brand,
+          item.manufacturer,
+          item.composition,
+          item.description
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return searchableText.includes(normalizedMedicine);
+      });
+    }
+
+    if (normalizedCity) {
+      result = result.filter((item) => {
+        const pharmacy = getPharmacyDetails(item);
+
+        return (
+          String(pharmacy.city || "").trim().toLowerCase() ===
+          normalizedCity
+        );
+      });
+    }
+
+    if (normalizedState) {
+      result = result.filter((item) => {
+        const pharmacy = getPharmacyDetails(item);
+
+        return (
+          String(pharmacy.state || "").trim().toLowerCase() ===
+          normalizedState
+        );
+      });
+    }
 
     if (availabilityFilter === "available") {
-
-      results = results.filter(
-        (item) => item.isAvailable
-      );
-
+      result = result.filter(isAvailable);
     }
 
-
-    if (availabilityFilter === "unavailable") {
-
-      results = results.filter(
-        (item) => !item.isAvailable
-      );
-
+    if (availabilityFilter === "out") {
+      result = result.filter((item) => !isAvailable(item));
     }
 
-
-    // SORT RESULTS
-
-    results.sort((a, b) => {
-
-      if (sortBy === "price") {
-
-        return (
-          Number(a.price || 0) -
-          Number(b.price || 0)
-        );
-
-      }
-
-
-      if (sortBy === "nearest") {
-
-        return 0;
-
-      }
-
-
-      if (sortBy === "freshness") {
-
-        return (
-          b.stockStatus.verifiedTime -
-          a.stockStatus.verifiedTime
-        );
-
-      }
-
-
-      // RECOMMENDED: AVAILABLE FIRST, THEN RECENTLY VERIFIED
-
-      if (a.isAvailable !== b.isAvailable) {
-
-        return Number(b.isAvailable) -
-          Number(a.isAvailable);
-
-      }
-
-      return (
-        b.stockStatus.verifiedTime -
-        a.stockStatus.verifiedTime
+    if (sortBy === "price-low") {
+      result.sort(
+        (a, b) => Number(a.price || 0) - Number(b.price || 0)
       );
+    }
 
-    });
+    if (sortBy === "price-high") {
+      result.sort(
+        (a, b) => Number(b.price || 0) - Number(a.price || 0)
+      );
+    }
 
+    if (sortBy === "available") {
+      result.sort(
+        (a, b) => Number(isAvailable(b)) - Number(isAvailable(a))
+      );
+    }
 
-    return results;
+    if (sortBy === "nearest" && userLocation) {
+      result.sort((a, b) => {
+        const distanceA = getDistance(a);
+        const distanceB = getDistance(b);
 
+        if (distanceA === null) return 1;
+        if (distanceB === null) return -1;
+
+        return distanceA - distanceB;
+      });
+    }
+
+    return result;
   }, [
     medicines,
+    pharmacies,
+    medicineQuery,
+    cityQuery,
+    stateQuery,
     availabilityFilter,
     sortBy,
-    currentTime
+    userLocation
   ]);
 
+  const availableCount = filteredMedicines.filter(isAvailable).length;
 
-  // SUMMARY COUNTS
+  const handleRequest = (item) => {
+    const pharmacy = getPharmacyDetails(item);
 
-  const availableCount = medicines.filter(
-    (medicine) => isMedicineAvailable(medicine)
-  ).length;
+    const params = new URLSearchParams();
 
-  const unavailableCount =
-    medicines.length - availableCount;
+    params.set("medicine", item.medicineName || medicineQuery);
 
+    if (item.dosage) {
+      params.set("dosage", item.dosage);
+    }
 
-  // LOCATION DISPLAY
+    if (item.pharmacyId) {
+      params.set("pharmacyId", item.pharmacyId);
+    }
 
-  const locationText = [
+    if (pharmacy.name) {
+      params.set("pharmacyName", pharmacy.name);
+    }
 
-    selectedCity,
-    selectedState
+    navigate(`/request-medicine?${params.toString()}`);
+  };
 
-  ].filter(Boolean).join(", ");
+  const formatDistance = (distance) => {
+    if (distance === null) {
+      return "Distance unavailable";
+    }
 
+    if (distance < 1) {
+      return `${Math.round(distance * 1000)} m away`;
+    }
+
+    return `${distance.toFixed(1)} km away`;
+  };
+
+  if (loading) {
+    return (
+      <main className="mr-page">
+        <div className="mr-loading">
+          <div className="mr-spinner"></div>
+          <h3>Finding medicines near you...</h3>
+          <p>Checking pharmacy availability.</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
+    <main className="mr-page">
+      <div className="mr-wrapper">
 
-    <div className="medicine-results-page">
+        <div className="mr-breadcrumb">
+          <span onClick={() => navigate("/")}>Home</span>
+          <span>/</span>
+          <span onClick={() => navigate("/search")}>
+            Medicine Search
+          </span>
+          <span>/</span>
+          <strong>Results</strong>
+        </div>
 
-      <div className="medicine-results-container">
-
-
-        {/* HEADER */}
-
-        <div className="results-top">
-
+        <section className="mr-heading">
           <div>
-
-            <span className="results-label">
-              MEDICINE SEARCH
+            <span className="mr-eyebrow">
+              MEDCONNECT MEDICINE FINDER
             </span>
 
             <h1>
-              Results for{" "}
-              <span>"{medicineQuery}"</span>
+              Search results for{" "}
+              <span>{medicineQuery || "Medicines"}</span>
             </h1>
 
             <p>
-              Compare medicine prices, availability
-              and pharmacy locations.
+              Compare medicine availability, prices and nearby pharmacies.
             </p>
-
           </div>
 
-
-          <Link
-            to="/search"
-            className="change-search-btn"
+          <button
+            className="mr-change-search"
+            onClick={() => navigate("/search")}
           >
-            New Search
-          </Link>
+            ← Change search
+          </button>
+        </section>
 
-        </div>
+        <section className="mr-location-bar">
+          <div className="mr-location-symbol">⌖</div>
 
-
-        {/* SELECTED LOCATION */}
-
-        <div className="location-banner">
-
-          <div className="location-banner-icon">
-            📍
-          </div>
-
-          <div className="location-banner-content">
-
+          <div>
+            <small>SEARCH LOCATION</small>
             <strong>
-              {locationText
-                ? `Showing results for ${locationText}`
-                : "Showing results from all locations"}
+              {[cityQuery, stateQuery].filter(Boolean).join(", ") ||
+                "All locations"}
             </strong>
-
-            <span>
-              {locationText
-                ? "Pharmacies are filtered according to your selected location."
-                : "Select a city and state on the search page to narrow your results."}
-            </span>
-
           </div>
 
-        </div>
+          <button onClick={() => navigate("/search")}>
+            Change location
+          </button>
+        </section>
 
-
-        {error && (
-
-          <div className="location-error">
-            {error}
+        <section className="mr-distance-panel">
+          <div>
+            <strong>Find pharmacies closest to you</strong>
+            <p>
+              Use your current location to calculate the distance to each
+              pharmacy.
+            </p>
           </div>
 
+          <button
+            type="button"
+            onClick={getCurrentLocation}
+            disabled={locationLoading}
+          >
+            {locationLoading
+              ? "Detecting..."
+              : userLocation
+                ? "Refresh location"
+                : "⌖ Use my location"}
+          </button>
+        </section>
+
+        {locationError && (
+          <div className="mr-location-error">
+            {locationError}
+          </div>
         )}
 
+        {error && (
+          <div className="mr-error">
+            {error}
+          </div>
+        )}
 
-        {loading ? (
-
-          <div className="results-loading">
-
-            <div className="loading-spinner"></div>
-
-            <h3>Finding pharmacies...</h3>
-
+        <section className="mr-results-summary">
+          <div>
+            <h2>Available pharmacy listings</h2>
             <p>
-              Comparing available medicines
-              across our pharmacy network.
+              {filteredMedicines.length} matching listings found
             </p>
-
           </div>
 
-        ) : medicines.length === 0 ? (
+          <div className="mr-summary-available">
+            <span className="mr-summary-dot"></span>
+            {availableCount} available
+          </div>
+        </section>
 
-          <div className="no-results">
+        <section className="mr-filter-bar">
+          <div className="mr-filter-left">
+            <span>Filter:</span>
 
-            <div className="no-results-icon">
-              💊
-            </div>
+            <button
+              className={
+                availabilityFilter === "all" ? "active" : ""
+              }
+              onClick={() => setAvailabilityFilter("all")}
+            >
+              All
+            </button>
+
+            <button
+              className={
+                availabilityFilter === "available" ? "active" : ""
+              }
+              onClick={() => setAvailabilityFilter("available")}
+            >
+              Available
+            </button>
+
+            <button
+              className={
+                availabilityFilter === "out" ? "active" : ""
+              }
+              onClick={() => setAvailabilityFilter("out")}
+            >
+              Out of stock
+            </button>
+          </div>
+
+          <div className="mr-sort">
+            <label htmlFor="mrSort">Sort by</label>
+
+            <select
+              id="mrSort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="relevant">Relevance</option>
+              <option value="available">Availability</option>
+              <option value="price-low">Price: Low to High</option>
+              <option value="price-high">Price: High to Low</option>
+
+              {userLocation && (
+                <option value="nearest">Nearest First</option>
+              )}
+            </select>
+          </div>
+        </section>
+
+        {filteredMedicines.length > 0 ? (
+          <section className="mr-medicine-list">
+
+            {filteredMedicines.map((item) => {
+              const available = isAvailable(item);
+              const pharmacy = getPharmacyDetails(item);
+              const distance = getDistance(item);
+
+              const discount = getDiscount(item);
+
+              const imageUrl = item.imageUrl || item.image || "";
+
+              return (
+                <article className="mr-medicine-card" key={item.id}>
+
+                  <div className="mr-medicine-image">
+                    {imageUrl ? (
+                      <img
+                        src={imageUrl}
+                        alt={item.medicineName || "Medicine"}
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                          e.currentTarget.nextSibling.style.display =
+                            "flex";
+                        }}
+                      />
+                    ) : null}
+
+                    <div
+                      className="mr-medicine-symbol"
+                      style={{
+                        display: imageUrl ? "none" : "flex"
+                      }}
+                    >
+                      ✚
+                    </div>
+
+                    <span>MEDICINE</span>
+                  </div>
+
+                  <div className="mr-medicine-content">
+
+                    <div className="mr-medicine-top">
+                      <div>
+                        <span className="mr-category">
+                          {item.category || "Medicine"}
+                        </span>
+
+                        <h3>{item.medicineName}</h3>
+
+                        {item.brand && (
+                          <p className="mr-brand">
+                            Brand: {item.brand}
+                          </p>
+                        )}
+
+                        {item.dosage && (
+                          <p className="mr-dosage">
+                            {item.dosage}
+                          </p>
+                        )}
+
+                        {(item.manufacturer || item.packSize) && (
+                          <div className="mr-product-meta">
+                            {item.manufacturer && (
+                              <span>{item.manufacturer}</span>
+                            )}
+
+                            {item.packSize && (
+                              <span>{item.packSize}</span>
+                            )}
+
+                            {item.dosageForm && (
+                              <span>{item.dosageForm}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <span
+                        className={`mr-stock-badge ${
+                          available ? "in-stock" : "out-stock"
+                        }`}
+                      >
+                        <span></span>
+                        {getStockStatus(item)}
+                      </span>
+                    </div>
+
+                    {item.composition && (
+                      <p className="mr-composition">
+                        <strong>Composition:</strong>{" "}
+                        {item.composition}
+                      </p>
+                    )}
+
+                    {item.description && (
+                      <p className="mr-description">
+                        {item.description}
+                      </p>
+                    )}
+
+                    <div className="mr-pharmacy-info">
+                      <div className="mr-pharmacy-icon">✚</div>
+
+                      <div className="mr-pharmacy-details">
+                        <strong>{pharmacy.name}</strong>
+
+                        <span>
+                          {[
+                            pharmacy.address,
+                            pharmacy.city,
+                            pharmacy.state
+                          ]
+                            .filter(Boolean)
+                            .join(", ") || "Address not available"}
+                        </span>
+
+                        {pharmacy.phone && (
+                          <span>Contact: {pharmacy.phone}</span>
+                        )}
+
+                        <span className="mr-distance-label">
+                          ⌖ {formatDistance(distance)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mr-stock-freshness">
+                      <span className="mr-freshness-dot"></span>
+                      {getStockFreshness(item)}
+                    </div>
+
+                    <div className="mr-card-bottom">
+
+                      <div className="mr-price-section">
+                        <small>SELLING PRICE</small>
+
+                        <div className="mr-price-line">
+                          <strong>
+                            ₹{Number(item.price || 0).toFixed(2)}
+                          </strong>
+
+                          {discount > 0 && (
+                            <span className="mr-discount">
+                              {discount}% OFF
+                            </span>
+                          )}
+                        </div>
+
+                        {Number(item.mrp) > 0 && (
+                          <span className="mr-mrp">
+                            MRP: ₹{Number(item.mrp).toFixed(2)}
+                          </span>
+                        )}
+
+                        <span>
+                          {available
+                            ? `${item.quantity} units in stock`
+                            : "Currently unavailable"}
+                        </span>
+                      </div>
+
+                      <div className="mr-card-actions">
+                        <button
+                          className="mr-view-pharmacy"
+                          onClick={() =>
+                            navigate(`/pharmacy/${item.pharmacyId}`)
+                          }
+                          disabled={!item.pharmacyId}
+                        >
+                          View Pharmacy
+                        </button>
+
+                        <button
+                          className="mr-request-button"
+                          onClick={() => handleRequest(item)}
+                        >
+                          Request Medicine →
+                        </button>
+                      </div>
+
+                    </div>
+
+                  </div>
+                </article>
+              );
+            })}
+
+          </section>
+        ) : (
+          <section className="mr-no-results">
+            <div className="mr-no-results-icon">⌕</div>
 
             <h2>No matching medicines found</h2>
 
             <p>
-
-              We couldn't find{" "}
-              <strong>"{medicineQuery}"</strong>
-
-              {locationText
-                ? ` in ${locationText}.`
-                : " in the available pharmacy inventory."}
-
+              We couldn't find this medicine in the selected location.
+              Try changing your location or search for another medicine.
             </p>
 
-            <Link
-              to={`/request-medicine?medicineName=${encodeURIComponent(
-                medicineQuery
-              )}`}
-              className="request-anywhere-btn"
-            >
-              Request This Medicine
-            </Link>
+            <div className="mr-no-results-actions">
+              <button onClick={() => navigate("/search")}>
+                Search again
+              </button>
 
-          </div>
-
-        ) : (
-
-          <>
-
-
-            {/* COMPARISON SUMMARY */}
-
-            <div className="comparison-summary">
-
-              <div className="comparison-summary-heading">
-
-                <span className="results-label">
-                  PHARMACY COMPARISON
-                </span>
-
-                <h2>
-                  Compare your options
-                </h2>
-
-                <p>
-                  Choose a pharmacy based on price
-                  and stock confirmation.
-                </p>
-
-              </div>
-
-
-              <div className="comparison-stat-grid">
-
-                <div className="comparison-stat">
-
-                  <span>Total Results</span>
-
-                  <strong>
-                    {medicines.length}
-                  </strong>
-
-                </div>
-
-
-                <div className="comparison-stat">
-
-                  <span>Available</span>
-
-                  <strong className="comparison-green">
-                    {availableCount}
-                  </strong>
-
-                </div>
-
-
-                <div className="comparison-stat">
-
-                  <span>Out of Stock</span>
-
-                  <strong className="comparison-red">
-                    {unavailableCount}
-                  </strong>
-
-                </div>
-
-              </div>
-
+              <button
+                onClick={() =>
+                  navigate(
+                    `/request-medicine?medicine=${encodeURIComponent(
+                      medicineQuery
+                    )}`
+                  )
+                }
+              >
+                Request this medicine
+              </button>
             </div>
-
-
-            {/* FILTER AND SORT */}
-
-            <div className="comparison-toolbar">
-
-              <div className="comparison-filter">
-
-                <label htmlFor="availabilityFilter">
-                  Availability
-                </label>
-
-                <select
-                  id="availabilityFilter"
-                  value={availabilityFilter}
-                  onChange={(e) =>
-                    setAvailabilityFilter(e.target.value)
-                  }
-                >
-
-                  <option value="all">
-                    All Medicines
-                  </option>
-
-                  <option value="available">
-                    Available Only
-                  </option>
-
-                  <option value="unavailable">
-                    Out of Stock
-                  </option>
-
-                </select>
-
-              </div>
-
-
-              <div className="comparison-filter">
-
-                <label htmlFor="sortBy">
-                  Sort Results
-                </label>
-
-                <select
-                  id="sortBy"
-                  value={sortBy}
-                  onChange={(e) =>
-                    setSortBy(e.target.value)
-                  }
-                >
-
-                  <option value="recommended">
-                    Recommended
-                  </option>
-
-                  <option value="price">
-                    Lowest Price
-                  </option>
-
-                  <option value="nearest">
-                    Nearest First
-                  </option>
-
-                  <option value="freshness">
-                    Recently Verified
-                  </option>
-
-                </select>
-
-              </div>
-
-            </div>
-
-
-            {/* FILTERED RESULTS */}
-
-            {comparisonResults.length === 0 ? (
-
-              <div className="comparison-empty">
-
-                <h3>No matching pharmacies</h3>
-
-                <p>
-                  No results match your selected
-                  availability filter.
-                </p>
-
-                <button
-                  onClick={() => setAvailabilityFilter("all")}
-                >
-                  Show All Results
-                </button>
-
-              </div>
-
-            ) : (
-
-              <>
-
-                <div className="results-summary">
-
-                  <div>
-
-                    <strong>
-                      {comparisonResults.length}
-                    </strong>{" "}
-
-                    comparison result
-                    {comparisonResults.length !== 1 ? "s" : ""}
-
-                  </div>
-
-                  <span>
-                    Live inventory updates enabled.
-                  </span>
-
-                </div>
-
-
-                {/* PHARMACY CARDS */}
-
-                <div className="medicine-results-grid">
-
-                  {comparisonResults.map((medicine) => {
-
-                    const pharmacy = medicine.pharmacy;
-
-                    const pharmacyName =
-                      pharmacy.name ||
-                      medicine.pharmacyName ||
-                      "Pharmacy";
-
-                    const pharmacyAddress =
-                      pharmacy.address ||
-                      medicine.pharmacyAddress ||
-                      "Address unavailable";
-
-                    const pharmacyCity =
-                      pharmacy.city ||
-                      medicine.pharmacyCity ||
-                      "";
-
-                    const pharmacyState =
-                      pharmacy.state ||
-                      medicine.pharmacyState ||
-                      "";
-
-
-                    return (
-
-                      <div
-                        className="medicine-result-card"
-                        key={medicine.id}
-                      >
-
-
-                        {/* MEDICINE HEADER */}
-
-                        <div className="medicine-card-top">
-
-                          <div className="medicine-icon">
-                            💊
-                          </div>
-
-
-                          <div className="medicine-main-info">
-
-                            <h2>
-                              {medicine.medicineName}
-                            </h2>
-
-                            <p>
-                              {medicine.dosage ||
-                                "Standard dosage"}
-                            </p>
-
-                          </div>
-
-
-                          <span
-                            className={
-                              medicine.isAvailable
-                                ? "availability available"
-                                : "availability unavailable"
-                            }
-                          >
-
-                            {medicine.isAvailable
-                              ? "Available"
-                              : "Out of Stock"}
-
-                          </span>
-
-                        </div>
-
-
-                        {/* DETAILS */}
-
-                        <div className="medicine-details">
-
-                          <div className="medicine-detail">
-
-                            <span>Category</span>
-
-                            <strong>
-                              {medicine.category || "General"}
-                            </strong>
-
-                          </div>
-
-
-                          <div className="medicine-detail">
-
-                            <span>Price</span>
-
-                            <strong>
-                              ₹{medicine.price || 0}
-                            </strong>
-
-                          </div>
-
-
-                          <div className="medicine-detail">
-
-                            <span>Stock</span>
-
-                            <strong>
-                              {medicine.quantity || 0}
-                            </strong>
-
-                          </div>
-
-
-                          <div className="medicine-detail">
-
-                            <span>Distance</span>
-
-                            <strong>
-                              Unavailable
-                            </strong>
-
-                          </div>
-
-                        </div>
-
-
-                        {/* STOCK VERIFICATION */}
-
-                        <div className="customer-stock-verification">
-
-                          <div className="customer-stock-heading">
-
-                            <span className="customer-stock-title">
-                              STOCK CONFIRMATION
-                            </span>
-
-
-                            <span
-                              className={`customer-stock-badge ${medicine.stockStatus.className}`}
-                            >
-
-                              <span className="customer-stock-dot"></span>
-
-                              {medicine.stockStatus.label}
-
-                            </span>
-
-                          </div>
-
-
-                          <p>
-
-                            {medicine.stockStatus.className ===
-                            "stock-unavailable"
-
-                              ? "This pharmacy currently has no available stock."
-
-                              : `Last confirmed: ${medicine.stockStatus.updated}`}
-
-                          </p>
-
-
-                          {medicine.stockStatus.className ===
-                            "stock-stale" && (
-
-                            <span className="stock-confirmation-note">
-
-                              Please confirm current availability
-                              with the pharmacy.
-
-                            </span>
-
-                          )}
-
-                        </div>
-
-
-                        {/* PHARMACY */}
-
-                        <div className="pharmacy-result">
-
-                          <div className="pharmacy-result-icon">
-                            🏥
-                          </div>
-
-
-                          <div className="pharmacy-result-info">
-
-                            <h3>{pharmacyName}</h3>
-
-                            <p>{pharmacyAddress}</p>
-
-                            <span>
-
-                              {pharmacyCity}
-
-                              {pharmacyState
-                                ? `, ${pharmacyState}`
-                                : ""}
-
-                            </span>
-
-                          </div>
-
-                        </div>
-
-
-                        {/* ACTIONS */}
-
-                        <div className="medicine-card-actions">
-
-                          <Link
-                            to={`/pharmacy/${medicine.pharmacyId}`}
-                            className="view-pharmacy-btn"
-                          >
-                            View Pharmacy
-                          </Link>
-
-
-                          <Link
-                            to={`/request-medicine?medicineName=${encodeURIComponent(
-                              medicine.medicineName
-                            )}&pharmacyId=${
-                              medicine.pharmacyId
-                            }&pharmacyName=${encodeURIComponent(
-                              pharmacyName
-                            )}`}
-                            className={
-                              medicine.isAvailable
-                                ? "request-medicine-btn"
-                                : "request-medicine-btn secondary"
-                            }
-                          >
-
-                            {medicine.isAvailable
-                              ? "Request Medicine"
-                              : "Request When Available"}
-
-                          </Link>
-
-                        </div>
-
-                      </div>
-
-                    );
-
-                  })}
-
-                </div>
-
-              </>
-
-            )}
-
-          </>
-
+          </section>
         )}
 
+        <section className="mr-help-banner">
+          <div>
+            <h3>Still unable to find your medicine?</h3>
+            <p>
+              Send a medicine request and let pharmacies respond to you.
+            </p>
+          </div>
+
+          <button
+            onClick={() =>
+              navigate(
+                `/request-medicine?medicine=${encodeURIComponent(
+                  medicineQuery
+                )}`
+              )
+            }
+          >
+            Request a medicine →
+          </button>
+        </section>
+
       </div>
-
-    </div>
-
+    </main>
   );
-
 }
 
 export default MedicineResults;

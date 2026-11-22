@@ -17,55 +17,26 @@ function PharmacyDetails() {
   const { pharmacyId } = useParams();
   const navigate = useNavigate();
 
-  const [pharmacy, setPharmacy] =
-    useState(null);
+  const [pharmacy, setPharmacy] = useState(null);
+  const [medicines, setMedicines] = useState([]);
+  const [searchText, setSearchText] = useState("");
+  const [userLocation, setUserLocation] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [error, setError] = useState("");
 
-  const [medicines, setMedicines] =
-    useState([]);
-
-  const [searchText, setSearchText] =
-    useState("");
-
-  const [userLocation, setUserLocation] =
-    useState(null);
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [locationLoading, setLocationLoading] =
-    useState(false);
-
-  const [locationError, setLocationError] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  const getDistance = (
-    lat1,
-    lon1,
-    lat2,
-    lon2
-  ) => {
+  const getDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
 
-    const dLat =
-      ((lat2 - lat1) * Math.PI) / 180;
-
-    const dLon =
-      ((lon2 - lon1) * Math.PI) / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
 
     const a =
-      Math.sin(dLat / 2) *
-        Math.sin(dLat / 2) +
-      Math.cos(
-        (lat1 * Math.PI) / 180
-      ) *
-        Math.cos(
-          (lat2 * Math.PI) / 180
-        ) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
 
     const c =
       2 *
@@ -91,10 +62,8 @@ function PharmacyDetails() {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setUserLocation({
-          latitude:
-            position.coords.latitude,
-          longitude:
-            position.coords.longitude
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
         });
 
         setLocationLoading(false);
@@ -127,25 +96,16 @@ function PharmacyDetails() {
         setMedicines([]);
 
         if (!pharmacyId) {
-          setError(
-            "Pharmacy not found."
-          );
+          setError("Pharmacy not found.");
           return;
         }
 
-        const pharmacyDoc =
-          await getDoc(
-            doc(
-              db,
-              "pharmacies",
-              pharmacyId
-            )
-          );
+        const pharmacyDoc = await getDoc(
+          doc(db, "pharmacies", pharmacyId)
+        );
 
         if (!pharmacyDoc.exists()) {
-          setError(
-            "Pharmacy not found."
-          );
+          setError("Pharmacy not found.");
           return;
         }
 
@@ -154,66 +114,50 @@ function PharmacyDetails() {
           ...pharmacyDoc.data()
         };
 
-        if (
-          pharmacyData.status !==
-          "approved"
-        ) {
+        // Handle different capitalization and spaces in status.
+        const pharmacyStatus = String(
+          pharmacyData.status || ""
+        )
+          .trim()
+          .toLowerCase();
+
+        if (pharmacyStatus !== "approved") {
           setError(
             "This pharmacy is not currently available on MedConnect."
           );
           return;
         }
 
-        setPharmacy(
-          pharmacyData
-        );
+        setPharmacy(pharmacyData);
 
-        const medicineSnapshot =
-          await getDocs(
-            collection(
-              db,
-              "medicines"
-            )
-          );
+        const medicineSnapshot = await getDocs(
+          collection(db, "medicines")
+        );
 
         const pharmacyMedicines = [];
 
-        medicineSnapshot.forEach(
-          (medicineDoc) => {
-            const medicine =
-              medicineDoc.data();
+        medicineSnapshot.forEach((medicineDoc) => {
+          const medicine = medicineDoc.data();
 
-            if (
-              medicine.pharmacyId !==
-              pharmacyId
-            ) {
-              return;
-            }
-
-            pharmacyMedicines.push({
-              id: medicineDoc.id,
-              ...medicine
-            });
+          if (medicine.pharmacyId !== pharmacyId) {
+            return;
           }
+
+          pharmacyMedicines.push({
+            id: medicineDoc.id,
+            ...medicine
+          });
+        });
+
+        pharmacyMedicines.sort((a, b) =>
+          (a.medicineName || "").localeCompare(
+            b.medicineName || ""
+          )
         );
 
-        pharmacyMedicines.sort(
-          (a, b) =>
-            (
-              a.medicineName || ""
-            ).localeCompare(
-              b.medicineName || ""
-            )
-        );
-
-        setMedicines(
-          pharmacyMedicines
-        );
+        setMedicines(pharmacyMedicines);
       } catch (err) {
-        console.error(
-          "PHARMACY DETAILS ERROR:",
-          err
-        );
+        console.error("PHARMACY DETAILS ERROR:", err);
 
         setError(
           "Unable to load pharmacy details."
@@ -230,23 +174,14 @@ function PharmacyDetails() {
     if (
       !userLocation ||
       !pharmacy ||
-      pharmacy.latitude ===
-        undefined ||
-      pharmacy.longitude ===
-        undefined
+      pharmacy.latitude === undefined ||
+      pharmacy.longitude === undefined
     ) {
       return null;
     }
 
-    const latitude =
-      Number(
-        pharmacy.latitude
-      );
-
-    const longitude =
-      Number(
-        pharmacy.longitude
-      );
+    const latitude = Number(pharmacy.latitude);
+    const longitude = Number(pharmacy.longitude);
 
     if (
       Number.isNaN(latitude) ||
@@ -263,47 +198,31 @@ function PharmacyDetails() {
     );
   };
 
-  const filteredMedicines =
-    medicines.filter(
-      (medicine) =>
-        (
-          medicine.medicineName ||
-          ""
-        )
-          .toLowerCase()
-          .includes(
-            searchText
-              .trim()
-              .toLowerCase()
-          )
-    );
+  const filteredMedicines = medicines.filter(
+    (medicine) =>
+      (medicine.medicineName || "")
+        .toLowerCase()
+        .includes(searchText.trim().toLowerCase())
+  );
 
-  const availableCount =
-    medicines.filter(
-      (medicine) =>
-        Number(
-          medicine.quantity
-        ) > 0 &&
-        medicine.availability !==
-          "Out of Stock"
-    ).length;
+  const availableCount = medicines.filter(
+    (medicine) =>
+      Number(medicine.quantity) > 0 &&
+      medicine.availability !== "Out of Stock"
+  ).length;
 
   if (loading) {
     return (
       <div className="pharmacy-details-loading">
-
         <div className="pharmacy-loading-spinner"></div>
 
-        <h3>
-          Loading pharmacy...
-        </h3>
+        <h3>Loading pharmacy...</h3>
 
         <p>
           Please wait while we load
           pharmacy information and
           medicine availability.
         </p>
-
       </div>
     );
   }
@@ -311,14 +230,11 @@ function PharmacyDetails() {
   if (error || !pharmacy) {
     return (
       <div className="pharmacy-details-error">
-
         <div className="pharmacy-error-icon">
           🏥
         </div>
 
-        <h2>
-          Pharmacy not available
-        </h2>
+        <h2>Pharmacy not available</h2>
 
         <p>
           {error ||
@@ -331,17 +247,14 @@ function PharmacyDetails() {
         >
           Back to Search
         </Link>
-
       </div>
     );
   }
 
-  const distance =
-    getPharmacyDistance();
+  const distance = getPharmacyDistance();
 
   return (
     <main className="pharmacy-details-page">
-
       <div className="pharmacy-details-container">
 
         <Link
@@ -352,7 +265,6 @@ function PharmacyDetails() {
         </Link>
 
         <section className="pharmacy-details-hero">
-
           <div className="pharmacy-details-main">
 
             <div className="pharmacy-details-icon">
@@ -366,51 +278,36 @@ function PharmacyDetails() {
               </span>
 
               <h1>
-                {pharmacy.name ||
-                  "Pharmacy"}
+                {pharmacy.name || "Pharmacy"}
               </h1>
 
               <p>
-                {pharmacy.address ||
-                  "Address unavailable"}
+                {pharmacy.address || "Address unavailable"}
               </p>
 
               <span className="pharmacy-city">
-                {pharmacy.city ||
-                  ""}
+                {pharmacy.city || ""}
                 {pharmacy.state
                   ? `, ${pharmacy.state}`
                   : ""}
               </span>
 
             </div>
-
           </div>
 
           <div className="pharmacy-distance-box">
-
-            <span>
-              📍
-            </span>
+            <span>📍</span>
 
             <div>
-
-              <small>
-                Distance from you
-              </small>
+              <small>Distance from you</small>
 
               <strong>
                 {distance !== null
-                  ? `${distance.toFixed(
-                      1
-                    )} km`
+                  ? `${distance.toFixed(1)} km`
                   : "Location unavailable"}
               </strong>
-
             </div>
-
           </div>
-
         </section>
 
         <div className="pharmacy-location-banner">
@@ -438,19 +335,14 @@ function PharmacyDetails() {
           {!userLocation && (
             <button
               className="pharmacy-location-btn"
-              onClick={
-                getUserLocation
-              }
-              disabled={
-                locationLoading
-              }
+              onClick={getUserLocation}
+              disabled={locationLoading}
             >
               {locationLoading
                 ? "Getting Location..."
                 : "Enable Location"}
             </button>
           )}
-
         </div>
 
         {locationError && (
@@ -462,85 +354,55 @@ function PharmacyDetails() {
         <section className="pharmacy-info-grid">
 
           <div className="pharmacy-info-card">
-
             <div className="pharmacy-info-icon">
               📞
             </div>
 
             <div>
-
-              <span>
-                PHONE
-              </span>
+              <span>PHONE</span>
 
               <strong>
-                {pharmacy.phone ||
-                  "Not available"}
+                {pharmacy.phone || "Not available"}
               </strong>
-
             </div>
-
           </div>
 
           <div className="pharmacy-info-card">
-
             <div className="pharmacy-info-icon">
               📍
             </div>
 
             <div>
-
-              <span>
-                LOCATION
-              </span>
+              <span>LOCATION</span>
 
               <strong>
-                {pharmacy.city ||
-                  "Not available"}
+                {pharmacy.city || "Not available"}
               </strong>
-
             </div>
-
           </div>
 
           <div className="pharmacy-info-card">
-
             <div className="pharmacy-info-icon">
               💊
             </div>
 
             <div>
+              <span>TOTAL MEDICINES</span>
 
-              <span>
-                TOTAL MEDICINES
-              </span>
-
-              <strong>
-                {medicines.length}
-              </strong>
-
+              <strong>{medicines.length}</strong>
             </div>
-
           </div>
 
           <div className="pharmacy-info-card">
-
             <div className="pharmacy-info-icon">
               ✓
             </div>
 
             <div>
+              <span>AVAILABLE</span>
 
-              <span>
-                AVAILABLE
-              </span>
-
-              <strong>
-                {availableCount}
-              </strong>
-
+              <strong>{availableCount}</strong>
             </div>
-
           </div>
 
         </section>
@@ -548,7 +410,6 @@ function PharmacyDetails() {
         <section className="pharmacy-inventory">
 
           <div className="pharmacy-inventory-header">
-
             <div>
 
               <span className="pharmacy-section-label">
@@ -570,51 +431,37 @@ function PharmacyDetails() {
             <div className="pharmacy-medicine-count">
               {medicines.length} Medicines
             </div>
-
           </div>
 
           <div className="pharmacy-inventory-search">
 
-            <span>
-              🔍
-            </span>
+            <span>🔍</span>
 
             <input
               type="text"
               placeholder="Search medicine in this pharmacy..."
               value={searchText}
               onChange={(e) =>
-                setSearchText(
-                  e.target.value
-                )
+                setSearchText(e.target.value)
               }
             />
 
             {searchText && (
               <button
                 type="button"
-                onClick={() =>
-                  setSearchText("")
-                }
+                onClick={() => setSearchText("")}
               >
                 ✕
               </button>
             )}
-
           </div>
 
-          {filteredMedicines.length ===
-          0 ? (
-
+          {filteredMedicines.length === 0 ? (
             <div className="pharmacy-no-medicines">
 
-              <div>
-                💊
-              </div>
+              <div>💊</div>
 
-              <h3>
-                No medicines found
-              </h3>
+              <h3>No medicines found</h3>
 
               <p>
                 {searchText
@@ -623,141 +470,108 @@ function PharmacyDetails() {
               </p>
 
             </div>
-
           ) : (
-
             <div className="pharmacy-medicine-grid">
 
-              {filteredMedicines.map(
-                (medicine) => {
+              {filteredMedicines.map((medicine) => {
+                const isAvailable =
+                  Number(medicine.quantity) > 0 &&
+                  medicine.availability !== "Out of Stock";
 
-                  const isAvailable =
-                    Number(
-                      medicine.quantity
-                    ) > 0 &&
-                    medicine.availability !==
-                      "Out of Stock";
+                return (
+                  <div
+                    className="pharmacy-medicine-card"
+                    key={medicine.id}
+                  >
 
-                  return (
-                    <div
-                      className="pharmacy-medicine-card"
-                      key={
-                        medicine.id
-                      }
-                    >
+                    <div className="pharmacy-medicine-top">
 
-                      <div className="pharmacy-medicine-top">
+                      <div className="pharmacy-medicine-icon">
+                        💊
+                      </div>
 
-                        <div className="pharmacy-medicine-icon">
-                          💊
-                        </div>
+                      <div className="pharmacy-medicine-name">
 
-                        <div className="pharmacy-medicine-name">
+                        <h3>
+                          {medicine.medicineName}
+                        </h3>
 
-                          <h3>
-                            {
-                              medicine.medicineName
-                            }
-                          </h3>
-
-                          <span>
-                            {medicine.dosage ||
-                              "Standard dosage"}
-                          </span>
-
-                        </div>
-
-                        <span
-                          className={
-                            isAvailable
-                              ? "pharmacy-availability available"
-                              : "pharmacy-availability unavailable"
-                          }
-                        >
-                          {isAvailable
-                            ? "Available"
-                            : "Out of Stock"}
+                        <span>
+                          {medicine.dosage || "Standard dosage"}
                         </span>
 
                       </div>
 
-                      <div className="pharmacy-medicine-details">
+                      <span
+                        className={
+                          isAvailable
+                            ? "pharmacy-availability available"
+                            : "pharmacy-availability unavailable"
+                        }
+                      >
+                        {isAvailable
+                          ? "Available"
+                          : "Out of Stock"}
+                      </span>
 
-                        <div>
+                    </div>
 
-                          <span>
-                            Category
-                          </span>
+                    <div className="pharmacy-medicine-details">
 
-                          <strong>
-                            {medicine.category ||
-                              "General"}
-                          </strong>
+                      <div>
+                        <span>Category</span>
 
-                        </div>
-
-                        <div>
-
-                          <span>
-                            Price
-                          </span>
-
-                          <strong>
-                            ₹
-                            {medicine.price ||
-                              0}
-                          </strong>
-
-                        </div>
-
-                        <div>
-
-                          <span>
-                            Stock
-                          </span>
-
-                          <strong>
-                            {medicine.quantity ||
-                              0}
-                          </strong>
-
-                        </div>
-
+                        <strong>
+                          {medicine.category || "General"}
+                        </strong>
                       </div>
 
-                      <div className="pharmacy-medicine-actions">
+                      <div>
+                        <span>Price</span>
 
-                        <button
-                          type="button"
-                          className={
-                            isAvailable
-                              ? "pharmacy-request-btn"
-                              : "pharmacy-request-btn secondary"
-                          }
-                          onClick={() =>
-                            navigate(
-                              `/request-medicine?medicineName=${encodeURIComponent(
-                                medicine.medicineName
-                              )}&pharmacyId=${
-                                pharmacyId
-                              }&pharmacyName=${encodeURIComponent(
-                                pharmacy.name ||
-                                  ""
-                              )}`
-                            )
-                          }
-                        >
-                          {isAvailable
-                            ? "Request Medicine"
-                            : "Request When Available"}
-                        </button>
+                        <strong>
+                          ₹{medicine.price || 0}
+                        </strong>
+                      </div>
 
+                      <div>
+                        <span>Stock</span>
+
+                        <strong>
+                          {medicine.quantity || 0}
+                        </strong>
                       </div>
 
                     </div>
-                  );
-                }
-              )}
+
+                    <div className="pharmacy-medicine-actions">
+
+                      <button
+                        type="button"
+                        className={
+                          isAvailable
+                            ? "pharmacy-request-btn"
+                            : "pharmacy-request-btn secondary"
+                        }
+                        onClick={() =>
+                          navigate(
+                            `/request-medicine?medicineName=${encodeURIComponent(
+                              medicine.medicineName
+                            )}&pharmacyId=${pharmacyId}&pharmacyName=${encodeURIComponent(
+                              pharmacy.name || ""
+                            )}`
+                          )
+                        }
+                      >
+                        {isAvailable
+                          ? "Request Medicine"
+                          : "Request When Available"}
+                      </button>
+
+                    </div>
+                  </div>
+                );
+              })}
 
             </div>
           )}
@@ -767,10 +581,7 @@ function PharmacyDetails() {
         <section className="pharmacy-details-bottom">
 
           <div>
-
-            <span>
-              NEED THIS MEDICINE?
-            </span>
+            <span>NEED THIS MEDICINE?</span>
 
             <h2>
               Send a request to this pharmacy.
@@ -781,13 +592,11 @@ function PharmacyDetails() {
               inventory or send a request
               directly to the pharmacy.
             </p>
-
           </div>
 
           <Link
             to={`/request-medicine?pharmacyId=${pharmacyId}&pharmacyName=${encodeURIComponent(
-              pharmacy.name ||
-                ""
+              pharmacy.name || ""
             )}`}
             className="pharmacy-request-main-btn"
           >
@@ -797,7 +606,6 @@ function PharmacyDetails() {
         </section>
 
       </div>
-
     </main>
   );
 }

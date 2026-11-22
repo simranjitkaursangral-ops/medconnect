@@ -1,10 +1,11 @@
-
 import { useEffect, useState } from "react";
+
 import {
   collection,
   doc,
   getDocs,
-  updateDoc
+  writeBatch,
+  serverTimestamp
 } from "firebase/firestore";
 
 import { db } from "../../firebase/Firebase";
@@ -15,6 +16,8 @@ function PharmacyApplications() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState("");
   const [error, setError] = useState("");
+
+  // LOAD PHARMACY APPLICATIONS
 
   const loadApplications = async () => {
     try {
@@ -40,11 +43,13 @@ function PharmacyApplications() {
       setApplications(data);
 
     } catch (err) {
-      console.error(err);
+      console.error("LOAD APPLICATIONS ERROR:", err);
+
       setError(
         err.message ||
         "Unable to load pharmacy applications."
       );
+
     } finally {
       setLoading(false);
     }
@@ -53,6 +58,8 @@ function PharmacyApplications() {
   useEffect(() => {
     loadApplications();
   }, []);
+
+  // APPROVE OR REJECT APPLICATION
 
   const updateApplicationStatus = async (
     application,
@@ -65,9 +72,20 @@ function PharmacyApplications() {
       return;
     }
 
+    if (!application.ownerId) {
+      setError(
+        "Owner information is missing for this pharmacy."
+      );
+      return;
+    }
+
     try {
       setProcessingId(application.id);
       setError("");
+
+      const batch = writeBatch(db);
+
+      // PHARMACY DOCUMENT
 
       const pharmacyRef = doc(
         db,
@@ -75,41 +93,58 @@ function PharmacyApplications() {
         application.id
       );
 
-      await updateDoc(pharmacyRef, {
-        status
+      batch.update(pharmacyRef, {
+        status,
+        updatedAt: serverTimestamp()
       });
 
-      if (application.ownerId) {
-        const userRef = doc(
-          db,
-          "users",
-          application.ownerId
-        );
+      // OWNER USER DOCUMENT
 
-        await updateDoc(userRef, {
-          status
-        });
-      }
+      const userRef = doc(
+        db,
+        "users",
+        application.ownerId
+      );
+
+      batch.update(userRef, {
+        status,
+        updatedAt: serverTimestamp()
+      });
+
+      // COMMIT BOTH UPDATES TOGETHER
+
+      await batch.commit();
+
+      // UPDATE LOCAL STATE
 
       setApplications((previous) =>
         previous.map((item) =>
           item.id === application.id
-            ? { ...item, status }
+            ? {
+                ...item,
+                status
+              }
             : item
         )
       );
 
     } catch (err) {
-      console.error(err);
+      console.error(
+        "UPDATE APPLICATION ERROR:",
+        err
+      );
 
       setError(
         err.message ||
         "Unable to update application."
       );
+
     } finally {
       setProcessingId("");
     }
   };
+
+  // FILTER APPLICATIONS
 
   const filteredApplications = applications.filter(
     (application) => {
@@ -118,6 +153,8 @@ function PharmacyApplications() {
       return application.status === filter;
     }
   );
+
+  // STATISTICS
 
   const pendingCount = applications.filter(
     (item) => item.status === "pending"
@@ -131,27 +168,38 @@ function PharmacyApplications() {
     (item) => item.status === "rejected"
   ).length;
 
+  // LOADING
+
   if (loading) {
     return (
       <div className="admin-loading">
         <div className="loading-spinner"></div>
-        <h3>Loading pharmacy applications...</h3>
+
+        <h3>
+          Loading pharmacy applications...
+        </h3>
       </div>
     );
   }
 
   return (
     <div className="admin-page">
+
       <div className="admin-page-container">
 
+        {/* PAGE HEADER */}
+
         <div className="admin-hero">
+
           <div className="admin-hero-content">
 
             <span className="section-badge">
               PHARMACY PARTNERS
             </span>
 
-            <h1>Pharmacy Applications</h1>
+            <h1>
+              Pharmacy Applications
+            </h1>
 
             <p>
               Review pharmacy partner applications
@@ -160,7 +208,10 @@ function PharmacyApplications() {
             </p>
 
           </div>
+
         </div>
+
+        {/* ERROR MESSAGE */}
 
         {error && (
           <div className="form-error">
@@ -173,42 +224,63 @@ function PharmacyApplications() {
         <div className="admin-dashboard-stats">
 
           <div className="admin-stat-card">
-            <div className="admin-stat-icon">🏥</div>
+
+            <div className="admin-stat-icon">
+              🏥
+            </div>
+
             <div>
               <span>Total Applications</span>
               <strong>{applications.length}</strong>
             </div>
+
           </div>
 
           <div className="admin-stat-card">
-            <div className="admin-stat-icon">⏳</div>
+
+            <div className="admin-stat-icon">
+              ⏳
+            </div>
+
             <div>
               <span>Pending</span>
               <strong>{pendingCount}</strong>
             </div>
+
           </div>
 
           <div className="admin-stat-card">
-            <div className="admin-stat-icon">✓</div>
+
+            <div className="admin-stat-icon">
+              ✓
+            </div>
+
             <div>
               <span>Approved</span>
               <strong>{approvedCount}</strong>
             </div>
+
           </div>
 
           <div className="admin-stat-card">
-            <div className="admin-stat-icon">✕</div>
+
+            <div className="admin-stat-icon">
+              ✕
+            </div>
+
             <div>
               <span>Rejected</span>
               <strong>{rejectedCount}</strong>
             </div>
+
           </div>
 
         </div>
 
-        {/* PHARMACY APPLICATIONS */}
+        {/* APPLICATION LIST */}
 
         <div className="admin-form-container">
+
           <div className="admin-form-card">
 
             <div className="admin-form-header">
@@ -218,7 +290,10 @@ function PharmacyApplications() {
               </div>
 
               <div>
-                <h2>Registered Pharmacies</h2>
+                <h2>
+                  Registered Pharmacies
+                </h2>
+
                 <p>
                   Review submitted pharmacy details
                   and licence numbers.
@@ -227,41 +302,54 @@ function PharmacyApplications() {
 
             </div>
 
-            {/* FILTERS */}
+            {/* FILTER BUTTONS */}
 
             <div className="application-filters">
 
-              {["all", "pending", "approved", "rejected"].map(
-                (item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    className={
-                      filter === item
-                        ? "application-filter active"
-                        : "application-filter"
-                    }
-                    onClick={() => setFilter(item)}
-                  >
-                    {item.charAt(0).toUpperCase() +
-                      item.slice(1)}
-                  </button>
-                )
-              )}
+              {[
+                "all",
+                "pending",
+                "approved",
+                "rejected"
+              ].map((item) => (
+
+                <button
+                  key={item}
+                  type="button"
+                  className={
+                    filter === item
+                      ? "application-filter active"
+                      : "application-filter"
+                  }
+                  onClick={() => setFilter(item)}
+                >
+                  {item.charAt(0).toUpperCase() +
+                    item.slice(1)}
+                </button>
+
+              ))}
 
             </div>
 
             {/* EMPTY STATE */}
 
             {filteredApplications.length === 0 ? (
+
               <div className="application-empty">
+
                 <div>🏥</div>
-                <h3>No applications found</h3>
+
+                <h3>
+                  No applications found
+                </h3>
+
                 <p>
                   There are no pharmacy applications
                   in this category.
                 </p>
+
               </div>
+
             ) : (
 
               <div className="application-list">
@@ -274,11 +362,12 @@ function PharmacyApplications() {
                       key={application.id}
                     >
 
-                      {/* HEADER */}
+                      {/* CARD HEADER */}
 
                       <div className="application-card-header">
 
                         <div>
+
                           <span className="application-label">
                             PHARMACY
                           </span>
@@ -287,6 +376,7 @@ function PharmacyApplications() {
                             {application.name ||
                               "Unnamed Pharmacy"}
                           </h3>
+
                         </div>
 
                         <span
@@ -305,6 +395,7 @@ function PharmacyApplications() {
 
                         <div>
                           <span>Owner</span>
+
                           <strong>
                             {application.ownerName ||
                               "Not provided"}
@@ -313,6 +404,7 @@ function PharmacyApplications() {
 
                         <div>
                           <span>Email</span>
+
                           <strong>
                             {application.email ||
                               "Not provided"}
@@ -321,6 +413,7 @@ function PharmacyApplications() {
 
                         <div>
                           <span>Phone</span>
+
                           <strong>
                             {application.phone ||
                               "Not provided"}
@@ -329,6 +422,7 @@ function PharmacyApplications() {
 
                         <div>
                           <span>Licence Number</span>
+
                           <strong>
                             {application.licenceNumber ||
                               "Not provided"}
@@ -337,6 +431,7 @@ function PharmacyApplications() {
 
                         <div>
                           <span>City</span>
+
                           <strong>
                             {application.city ||
                               "Not provided"}
@@ -345,6 +440,7 @@ function PharmacyApplications() {
 
                         <div>
                           <span>State</span>
+
                           <strong>
                             {application.state ||
                               "Not provided"}
@@ -352,11 +448,14 @@ function PharmacyApplications() {
                         </div>
 
                         <div className="application-address">
+
                           <span>Address</span>
+
                           <strong>
                             {application.address ||
                               "Not provided"}
                           </strong>
+
                         </div>
 
                       </div>
@@ -366,13 +465,17 @@ function PharmacyApplications() {
                       <div className="application-document">
 
                         <div>
-                          <span>Pharmacy Licence Information</span>
+
+                          <span>
+                            Pharmacy Licence Information
+                          </span>
 
                           <strong>
                             {application.licenceNumber
                               ? "Licence number submitted"
                               : "Licence number not provided"}
                           </strong>
+
                         </div>
 
                       </div>
@@ -382,6 +485,7 @@ function PharmacyApplications() {
                       <div className="application-actions">
 
                         {application.status !== "approved" && (
+
                           <button
                             type="button"
                             className="application-approve-btn"
@@ -399,9 +503,11 @@ function PharmacyApplications() {
                               ? "Processing..."
                               : "Approve"}
                           </button>
+
                         )}
 
                         {application.status !== "rejected" && (
+
                           <button
                             type="button"
                             className="application-reject-btn"
@@ -419,21 +525,26 @@ function PharmacyApplications() {
                               ? "Processing..."
                               : "Reject"}
                           </button>
+
                         )}
 
                       </div>
 
                     </div>
+
                   )
                 )}
 
               </div>
+
             )}
 
           </div>
+
         </div>
 
       </div>
+
     </div>
   );
 }

@@ -13,7 +13,8 @@ import {
   query,
   where,
   onSnapshot,
-  updateDoc
+  updateDoc,
+  serverTimestamp
 } from "firebase/firestore";
 
 import { auth, db } from "../../firebase/Firebase";
@@ -201,7 +202,8 @@ function Header() {
         await updateDoc(
           doc(db, "pharmacyResponses", notification.id),
           {
-            isRead: true
+            isRead: true,
+            readAt: serverTimestamp()
           }
         );
       }
@@ -403,6 +405,10 @@ function Header() {
 
               <Link to="/prescription-upload" onClick={closeMenu}>
                 Prescription
+              </Link>
+
+              <Link to="/ai-assistant" onClick={closeMenu}>
+                AI Assistant
               </Link>
 
               {isLogin && userType === "user" && (

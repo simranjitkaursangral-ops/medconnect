@@ -1,10 +1,16 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+
+import {
+  createUserWithEmailAndPassword,
+  signOut,
+  deleteUser
+} from "firebase/auth";
+
 import {
   collection,
   doc,
-  setDoc,
+  writeBatch,
   serverTimestamp
 } from "firebase/firestore";
 
@@ -70,21 +76,24 @@ function PharmacyRegister() {
       return;
     }
 
+    if (formData.password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
 
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
+    let createdUser = null;
 
     try {
       setLoading(true);
       setError("");
       setSuccess("");
 
+      // Create Firebase Authentication account.
       const userCredential =
         await createUserWithEmailAndPassword(
           auth,
@@ -93,14 +102,19 @@ function PharmacyRegister() {
         );
 
       const user = userCredential.user;
+      createdUser = user;
 
+      // Generate pharmacy document ID.
       const pharmacyRef = doc(
         collection(db, "pharmacies")
       );
 
       const pharmacyId = pharmacyRef.id;
 
-      await setDoc(
+      // Create both Firestore documents atomically.
+      const batch = writeBatch(db);
+
+      batch.set(
         doc(db, "users", user.uid),
         {
           uid: user.uid,
@@ -114,7 +128,7 @@ function PharmacyRegister() {
         }
       );
 
-      await setDoc(
+      batch.set(
         pharmacyRef,
         {
           pharmacyId,
@@ -132,6 +146,20 @@ function PharmacyRegister() {
           createdAt: serverTimestamp()
         }
       );
+
+      await batch.commit();
+
+      // Sign out after successful registration.
+      await signOut(auth);
+
+      // Clear any previous local session.
+      localStorage.removeItem("isLogin");
+      localStorage.removeItem("uid");
+      localStorage.removeItem("userType");
+      localStorage.removeItem("userName");
+      localStorage.removeItem("userEmail");
+      localStorage.removeItem("pharmacyId");
+      localStorage.removeItem("pharmacyStatus");
 
       setSuccess(
         "Pharmacy application submitted successfully. Your application is pending admin approval."
@@ -156,41 +184,35 @@ function PharmacyRegister() {
       }, 2500);
 
     } catch (err) {
-      console.error(
-        "PHARMACY REGISTER ERROR:",
-        err
-      );
+      console.error("PHARMACY REGISTER ERROR:", err);
 
-      if (
-        err.code === "auth/email-already-in-use"
-      ) {
-        setError(
-          "This email is already registered."
-        );
-      } else if (
-        err.code === "auth/invalid-email"
-      ) {
-        setError(
-          "Please enter a valid email."
-        );
-      } else if (
-        err.code === "auth/weak-password"
-      ) {
-        setError(
-          "Password must be at least 6 characters."
-        );
-      } else if (
-        err.code === "permission-denied"
-      ) {
-        setError(
-          "Firebase permission denied."
-        );
+      // Remove the newly created authentication account
+      // if Firestore registration failed.
+      if (createdUser) {
+        try {
+          await deleteUser(createdUser);
+        } catch (deleteError) {
+          console.error(
+            "Account cleanup error:",
+            deleteError
+          );
+        }
+      }
+
+      if (err.code === "auth/email-already-in-use") {
+        setError("This email is already registered.");
+      } else if (err.code === "auth/invalid-email") {
+        setError("Please enter a valid email.");
+      } else if (err.code === "auth/weak-password") {
+        setError("Password must be at least 6 characters.");
+      } else if (err.code === "permission-denied") {
+        setError("Firebase permission denied.");
       } else {
         setError(
-          err.message ||
-          "Registration failed."
+          err.message || "Registration failed."
         );
       }
+
     } finally {
       setLoading(false);
     }
@@ -245,6 +267,7 @@ function PharmacyRegister() {
                 value={formData.ownerName}
                 onChange={handleChange}
                 placeholder="Enter owner name"
+                disabled={loading}
               />
             </div>
 
@@ -257,6 +280,7 @@ function PharmacyRegister() {
                 value={formData.pharmacyName}
                 onChange={handleChange}
                 placeholder="Enter pharmacy name"
+                disabled={loading}
               />
             </div>
 
@@ -269,6 +293,7 @@ function PharmacyRegister() {
                 value={formData.email}
                 onChange={handleChange}
                 placeholder="Enter email"
+                disabled={loading}
               />
             </div>
 
@@ -281,6 +306,7 @@ function PharmacyRegister() {
                 value={formData.phone}
                 onChange={handleChange}
                 placeholder="Enter phone number"
+                disabled={loading}
               />
             </div>
 
@@ -293,6 +319,7 @@ function PharmacyRegister() {
                 onChange={handleChange}
                 placeholder="Enter complete pharmacy address"
                 rows="3"
+                disabled={loading}
               />
             </div>
 
@@ -305,6 +332,7 @@ function PharmacyRegister() {
                 value={formData.city}
                 onChange={handleChange}
                 placeholder="Enter city"
+                disabled={loading}
               />
             </div>
 
@@ -317,6 +345,7 @@ function PharmacyRegister() {
                 value={formData.state}
                 onChange={handleChange}
                 placeholder="Enter state"
+                disabled={loading}
               />
             </div>
 
@@ -329,6 +358,7 @@ function PharmacyRegister() {
                 value={formData.country}
                 onChange={handleChange}
                 placeholder="Enter country"
+                disabled={loading}
               />
             </div>
 
@@ -341,6 +371,7 @@ function PharmacyRegister() {
                 value={formData.licenceNumber}
                 onChange={handleChange}
                 placeholder="Enter licence number"
+                disabled={loading}
               />
             </div>
 
@@ -353,6 +384,7 @@ function PharmacyRegister() {
                 value={formData.password}
                 onChange={handleChange}
                 placeholder="Create password"
+                disabled={loading}
               />
             </div>
 
@@ -365,6 +397,7 @@ function PharmacyRegister() {
                 value={formData.confirmPassword}
                 onChange={handleChange}
                 placeholder="Confirm password"
+                disabled={loading}
               />
             </div>
 

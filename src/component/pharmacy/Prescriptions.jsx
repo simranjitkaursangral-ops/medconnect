@@ -10,7 +10,8 @@ import {
   where
 } from "firebase/firestore";
 
-import { db } from "../../firebase/Firebase";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { auth, db } from "../../firebase/Firebase";
 
 function Prescriptions() {
   const [prescriptions, setPrescriptions] = useState([]);
@@ -18,36 +19,28 @@ function Prescriptions() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState("");
   const [error, setError] = useState("");
+  const [openingId, setOpeningId] = useState("");
+  const [viewError, setViewError] = useState("");
 
   const verifyPharmacy = async () => {
-    const uid =
-      localStorage.getItem("uid");
+    const uid = localStorage.getItem("uid");
+    const userType = localStorage.getItem("userType");
 
-    const userType =
-      localStorage.getItem("userType");
-
-    if (
-      !uid ||
-      userType !== "pharmacy"
-    ) {
+    if (!uid || userType !== "pharmacy") {
       throw new Error(
         "Pharmacy session not found. Please login again."
       );
     }
 
-    const userSnapshot =
-      await getDoc(
-        doc(db, "users", uid)
-      );
+    const userSnapshot = await getDoc(
+      doc(db, "users", uid)
+    );
 
     if (!userSnapshot.exists()) {
-      throw new Error(
-        "Pharmacy profile not found."
-      );
+      throw new Error("Pharmacy profile not found.");
     }
 
-    const userData =
-      userSnapshot.data();
+    const userData = userSnapshot.data();
 
     if (
       userData.role !== "pharmacy" ||
@@ -59,14 +52,9 @@ function Prescriptions() {
       );
     }
 
-    const pharmacySnapshot =
-      await getDoc(
-        doc(
-          db,
-          "pharmacies",
-          userData.pharmacyId
-        )
-      );
+    const pharmacySnapshot = await getDoc(
+      doc(db, "pharmacies", userData.pharmacyId)
+    );
 
     if (!pharmacySnapshot.exists()) {
       throw new Error(
@@ -74,21 +62,15 @@ function Prescriptions() {
       );
     }
 
-    const pharmacyData =
-      pharmacySnapshot.data();
+    const pharmacyData = pharmacySnapshot.data();
 
-    if (
-      pharmacyData.ownerId !== uid
-    ) {
+    if (pharmacyData.ownerId !== uid) {
       throw new Error(
         "You are not authorized to manage this pharmacy."
       );
     }
 
-    if (
-      pharmacyData.status !==
-      "approved"
-    ) {
+    if (pharmacyData.status !== "approved") {
       throw new Error(
         "Your pharmacy is not approved."
       );
@@ -96,8 +78,7 @@ function Prescriptions() {
 
     return {
       uid,
-      pharmacyId:
-        userData.pharmacyId
+      pharmacyId: userData.pharmacyId
     };
   };
 
@@ -106,53 +87,33 @@ function Prescriptions() {
       setLoading(true);
       setError("");
 
-      const pharmacy =
-        await verifyPharmacy();
+      const pharmacy = await verifyPharmacy();
 
-      const prescriptionQuery =
-        query(
-          collection(
-            db,
-            "prescriptions"
-          ),
-          where(
-            "pharmacyId",
-            "==",
-            pharmacy.pharmacyId
-          )
-        );
+      const prescriptionQuery = query(
+        collection(db, "prescriptions"),
+        where("pharmacyId", "==", pharmacy.pharmacyId)
+      );
 
-      const prescriptionSnapshot =
-        await getDocs(
-          prescriptionQuery
-        );
+      const prescriptionSnapshot = await getDocs(
+        prescriptionQuery
+      );
 
       const prescriptionData =
-        prescriptionSnapshot.docs.map(
-          (item) => ({
-            id: item.id,
-            ...item.data()
-          })
-        );
+        prescriptionSnapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }));
 
       prescriptionData.sort((a, b) => {
-        const aTime =
-          a.createdAt?.seconds || 0;
-
-        const bTime =
-          b.createdAt?.seconds || 0;
+        const aTime = a.createdAt?.seconds || 0;
+        const bTime = b.createdAt?.seconds || 0;
 
         return bTime - aTime;
       });
 
-      setPrescriptions(
-        prescriptionData
-      );
+      setPrescriptions(prescriptionData);
     } catch (err) {
-      console.error(
-        "LOAD PRESCRIPTIONS ERROR:",
-        err
-      );
+      console.error("LOAD PRESCRIPTIONS ERROR:", err);
 
       setError(
         err.message ||
@@ -167,44 +128,106 @@ function Prescriptions() {
     loadPrescriptions();
   }, [loadPrescriptions]);
 
-  const handleStatusChange = async (
-    id,
-    status
-  ) => {
+  // Securely open authenticated Cloudinary prescriptions
+  const handleViewPrescription = async (prescription) => {
+    if (!prescription?.id) {
+      setViewError("Prescription record not found.");
+      return;
+    }
+
+    // Support older records that contain a direct file URL.
+    if (!prescription.filePublicId) {
+      if (prescription.fileUrl) {
+        window.open(
+          prescription.fileUrl,
+          "_blank",
+          "noopener,noreferrer"
+        );
+      } else {
+        setViewError("Prescription file is unavailable.");
+      }
+
+      return;
+    }
+
+    // Open a blank tab immediately to avoid popup blocking.
+    const popup = window.open("", "_blank");
+
+    try {
+      setOpeningId(prescription.id);
+      setViewError("");
+
+      if (!auth.currentUser) {
+        throw new Error(
+          "Please login again to view this prescription."
+        );
+      }
+
+      const functions = getFunctions(
+        undefined,
+        "asia-south1"
+      );
+
+      const getPrescriptionDownloadUrl = httpsCallable(
+        functions,
+        "getPrescriptionDownloadUrl"
+      );
+
+      const result = await getPrescriptionDownloadUrl({
+        prescriptionId: prescription.id
+      });
+
+      const secureUrl = result.data?.url;
+
+      if (!secureUrl) {
+        throw new Error(
+          "Secure prescription link could not be generated."
+        );
+      }
+
+      if (popup) {
+        popup.location.href = secureUrl;
+      } else {
+        window.location.href = secureUrl;
+      }
+    } catch (err) {
+      if (popup && !popup.closed) {
+        popup.close();
+      }
+
+      console.error("VIEW PRESCRIPTION ERROR:", err);
+
+      setViewError(
+        err.message ||
+          "Unable to open prescription. Please try again."
+      );
+    } finally {
+      setOpeningId("");
+    }
+  };
+
+  const handleStatusChange = async (id, status) => {
     const allowedStatuses = [
       "Pending",
       "Reviewed",
       "Completed"
     ];
 
-    if (
-      !allowedStatuses.includes(
-        status
-      )
-    ) {
-      setError(
-        "Invalid prescription status."
-      );
+    if (!allowedStatuses.includes(status)) {
+      setError("Invalid prescription status.");
       return;
     }
 
-    const currentPrescription =
-      prescriptions.find(
-        (item) =>
-          item.id === id
-      );
+    const currentPrescription = prescriptions.find(
+      (item) => item.id === id
+    );
 
     if (!currentPrescription) {
-      setError(
-        "Prescription not found."
-      );
+      setError("Prescription not found.");
       return;
     }
 
-    if (
-      currentPrescription.status ===
-      status
-    ) {
+    if (currentPrescription.status === status) {
       return;
     }
 
@@ -212,27 +235,20 @@ function Prescriptions() {
       setUpdatingId(id);
       setError("");
 
-      const pharmacy =
-        await verifyPharmacy();
+      const pharmacy = await verifyPharmacy();
 
-      const prescriptionRef =
-        doc(
-          db,
-          "prescriptions",
-          id
-        );
+      const prescriptionRef = doc(
+        db,
+        "prescriptions",
+        id
+      );
 
-      const prescriptionSnapshot =
-        await getDoc(
-          prescriptionRef
-        );
+      const prescriptionSnapshot = await getDoc(
+        prescriptionRef
+      );
 
-      if (
-        !prescriptionSnapshot.exists()
-      ) {
-        setError(
-          "Prescription not found."
-        );
+      if (!prescriptionSnapshot.exists()) {
+        setError("Prescription not found.");
         return;
       }
 
@@ -249,14 +265,10 @@ function Prescriptions() {
         return;
       }
 
-      await updateDoc(
-        prescriptionRef,
-        {
-          status,
-          updatedAt:
-            serverTimestamp()
-        }
-      );
+      await updateDoc(prescriptionRef, {
+        status,
+        updatedAt: serverTimestamp()
+      });
 
       setPrescriptions((current) =>
         current.map((item) =>
@@ -269,10 +281,7 @@ function Prescriptions() {
         )
       );
     } catch (err) {
-      console.error(
-        "UPDATE PRESCRIPTION ERROR:",
-        err
-      );
+      console.error("UPDATE PRESCRIPTION ERROR:", err);
 
       setError(
         err.message ||
@@ -283,119 +292,79 @@ function Prescriptions() {
     }
   };
 
-  const filteredPrescriptions =
-    useMemo(() => {
-      if (filter === "All") {
-        return prescriptions;
-      }
+  const filteredPrescriptions = useMemo(() => {
+    if (filter === "All") {
+      return prescriptions;
+    }
 
-      return prescriptions.filter(
-        (item) =>
-          item.status === filter
-      );
-    }, [
-      prescriptions,
-      filter
-    ]);
+    return prescriptions.filter(
+      (item) => item.status === filter
+    );
+  }, [prescriptions, filter]);
 
-  const statusCounts =
-    useMemo(() => {
-      return {
-        All:
-          prescriptions.length,
+  const statusCounts = useMemo(() => {
+    return {
+      All: prescriptions.length,
 
-        Pending:
-          prescriptions.filter(
-            (item) =>
-              item.status ===
-              "Pending"
-          ).length,
+      Pending: prescriptions.filter(
+        (item) => item.status === "Pending"
+      ).length,
 
-        Reviewed:
-          prescriptions.filter(
-            (item) =>
-              item.status ===
-              "Reviewed"
-          ).length,
+      Reviewed: prescriptions.filter(
+        (item) => item.status === "Reviewed"
+      ).length,
 
-        Completed:
-          prescriptions.filter(
-            (item) =>
-              item.status ===
-              "Completed"
-          ).length
-      };
-    }, [prescriptions]);
+      Completed: prescriptions.filter(
+        (item) => item.status === "Completed"
+      ).length
+    };
+  }, [prescriptions]);
 
-  const formatDate = (
-    timestamp
-  ) => {
+  const formatDate = (timestamp) => {
     if (!timestamp) {
       return "Date unavailable";
     }
 
     try {
-      const date =
-        timestamp.toDate
-          ? timestamp.toDate()
-          : new Date(
-              timestamp.seconds *
-                1000
-            );
+      const date = timestamp.toDate
+        ? timestamp.toDate()
+        : new Date(timestamp.seconds * 1000);
 
-      return date.toLocaleDateString(
-        "en-IN",
-        {
-          day: "2-digit",
-          month: "short",
-          year: "numeric"
-        }
-      );
+      return date.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      });
     } catch {
       return "Date unavailable";
     }
   };
 
-  const formatTime = (
-    timestamp
-  ) => {
+  const formatTime = (timestamp) => {
     if (!timestamp) {
       return "";
     }
 
     try {
-      const date =
-        timestamp.toDate
-          ? timestamp.toDate()
-          : new Date(
-              timestamp.seconds *
-                1000
-            );
+      const date = timestamp.toDate
+        ? timestamp.toDate()
+        : new Date(timestamp.seconds * 1000);
 
-      return date.toLocaleTimeString(
-        "en-IN",
-        {
-          hour: "2-digit",
-          minute: "2-digit"
-        }
-      );
+      return date.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit"
+      });
     } catch {
       return "";
     }
   };
 
-  const getStatusClass = (
-    status
-  ) => {
-    if (
-      status === "Reviewed"
-    ) {
+  const getStatusClass = (status) => {
+    if (status === "Reviewed") {
       return "reviewed";
     }
 
-    if (
-      status === "Completed"
-    ) {
+    if (status === "Completed") {
       return "completed";
     }
 
@@ -407,18 +376,13 @@ function Prescriptions() {
       return "U";
     }
 
-    return name
-      .trim()
-      .charAt(0)
-      .toUpperCase();
+    return name.trim().charAt(0).toUpperCase();
   };
 
   if (loading) {
     return (
       <main className="prescriptions-page">
-
         <div className="prescriptions-loading">
-
           <div className="prescriptions-spinner"></div>
 
           <h3>
@@ -429,20 +393,16 @@ function Prescriptions() {
             Please wait while we load customer
             prescriptions.
           </p>
-
         </div>
-
       </main>
     );
   }
 
   return (
     <main className="prescriptions-page">
-
       <div className="prescriptions-container">
 
         <section className="prescriptions-hero">
-
           <div className="prescriptions-hero-content">
 
             <span className="prescriptions-badge">
@@ -464,13 +424,11 @@ function Prescriptions() {
           <div className="prescriptions-hero-icon">
             📋
           </div>
-
         </section>
 
         <section className="prescriptions-card">
 
           <div className="prescriptions-header">
-
             <div>
 
               <span className="prescriptions-label">
@@ -489,7 +447,6 @@ function Prescriptions() {
             </div>
 
             <div className="prescriptions-total">
-
               <strong>
                 {prescriptions.length}
               </strong>
@@ -497,20 +454,16 @@ function Prescriptions() {
               <span>
                 Total
               </span>
-
             </div>
-
           </div>
 
           {error && (
             <div className="prescriptions-error">
-
               <span>
                 ⚠️
               </span>
 
               <div>
-
                 <strong>
                   Something went wrong
                 </strong>
@@ -518,30 +471,24 @@ function Prescriptions() {
                 <p>
                   {error}
                 </p>
-
               </div>
 
               <button
                 type="button"
-                onClick={
-                  loadPrescriptions
-                }
+                onClick={loadPrescriptions}
               >
                 Retry
               </button>
-
             </div>
           )}
 
           <div className="prescriptions-filters">
-
             {[
               "All",
               "Pending",
               "Reviewed",
               "Completed"
             ].map((item) => (
-
               <button
                 key={item}
                 type="button"
@@ -550,11 +497,8 @@ function Prescriptions() {
                     ? "prescription-filter active"
                     : "prescription-filter"
                 }
-                onClick={() =>
-                  setFilter(item)
-                }
+                onClick={() => setFilter(item)}
               >
-
                 <span>
                   {item}
                 </span>
@@ -562,15 +506,39 @@ function Prescriptions() {
                 <strong>
                   {statusCounts[item]}
                 </strong>
-
               </button>
-
             ))}
-
           </div>
 
-          {filteredPrescriptions.length === 0 ? (
+          {viewError && (
+            <div
+              className="prescriptions-error"
+              role="alert"
+            >
+              <span>
+                ⚠️
+              </span>
 
+              <div>
+                <strong>
+                  Unable to open prescription
+                </strong>
+
+                <p>
+                  {viewError}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewError("")}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {filteredPrescriptions.length === 0 ? (
             <div className="prescriptions-empty">
 
               <div className="prescriptions-empty-icon">
@@ -590,274 +558,235 @@ function Prescriptions() {
               {filter !== "All" && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setFilter("All")
-                  }
+                  onClick={() => setFilter("All")}
                 >
                   View All Prescriptions
                 </button>
               )}
-
             </div>
-
           ) : (
-
             <div className="prescriptions-list">
 
-              {filteredPrescriptions.map(
-                (prescription) => {
+              {filteredPrescriptions.map((prescription) => {
+                const status =
+                  prescription.status || "Pending";
 
-                  const status =
-                    prescription.status ||
-                    "Pending";
+                const isUpdating =
+                  updatingId === prescription.id;
 
-                  const isUpdating =
-                    updatingId ===
-                    prescription.id;
+                return (
+                  <div
+                    className="prescription-item"
+                    key={prescription.id}
+                  >
 
-                  return (
-                    <div
-                      className="prescription-item"
-                      key={
-                        prescription.id
-                      }
-                    >
+                    <div className="prescription-item-top">
 
-                      <div className="prescription-item-top">
+                      <div className="prescription-customer">
 
-                        <div className="prescription-customer">
-
-                          <div className="prescription-avatar">
-
-                            {getInitial(
-                              prescription.userName
-                            )}
-
-                          </div>
-
-                          <div>
-
-                            <h3>
-                              {prescription.userName ||
-                                "Customer"}
-                            </h3>
-
-                            <p>
-                              {prescription.userEmail ||
-                                "Email unavailable"}
-                            </p>
-
-                          </div>
-
-                        </div>
-
-                        <span
-                          className={`prescription-status ${getStatusClass(
-                            status
-                          )}`}
-                        >
-                          ● {status}
-                        </span>
-
-                      </div>
-
-                      <div className="prescription-details-grid">
-
-                        <div className="prescription-detail-box">
-
-                          <span>
-                            Medicine
-                          </span>
-
-                          <strong>
-                            {prescription.medicineName ||
-                              "Not specified"}
-                          </strong>
-
-                        </div>
-
-                        <div className="prescription-detail-box">
-
-                          <span>
-                            Submitted
-                          </span>
-
-                          <strong>
-                            {formatDate(
-                              prescription.createdAt
-                            )}
-                          </strong>
-
-                          <small>
-                            {formatTime(
-                              prescription.createdAt
-                            )}
-                          </small>
-
-                        </div>
-
-                        <div className="prescription-detail-box">
-
-                          <span>
-                            Prescription File
-                          </span>
-
-                          {prescription.fileUrl ? (
-
-                            <a
-                              href={
-                                prescription.fileUrl
-                              }
-                              target="_blank"
-                              rel="noreferrer"
-                              className="prescription-view-btn"
-                            >
-                              👁 View Prescription
-                            </a>
-
-                          ) : (
-
-                            <strong>
-                              File unavailable
-                            </strong>
-
+                        <div className="prescription-avatar">
+                          {getInitial(
+                            prescription.userName
                           )}
-
                         </div>
-
-                        <div className="prescription-detail-box">
-
-                          <span>
-                            File Type
-                          </span>
-
-                          <strong>
-                            {prescription.fileType ||
-                              "Unknown"}
-                          </strong>
-
-                        </div>
-
-                      </div>
-
-                      {prescription.notes && (
-
-                        <div className="prescription-notes">
-
-                          <span>
-                            Customer Notes
-                          </span>
-
-                          <p>
-                            {prescription.notes}
-                          </p>
-
-                        </div>
-
-                      )}
-
-                      <div className="prescription-status-section">
 
                         <div>
-
-                          <span>
-                            Update Status
-                          </span>
+                          <h3>
+                            {prescription.userName ||
+                              "Customer"}
+                          </h3>
 
                           <p>
-                            Keep the customer
-                            updated by changing
-                            the prescription status.
+                            {prescription.userEmail ||
+                              "Email unavailable"}
                           </p>
-
                         </div>
 
-                        <div className="prescription-status-actions">
+                      </div>
 
+                      <span
+                        className={`prescription-status ${getStatusClass(
+                          status
+                        )}`}
+                      >
+                        ● {status}
+                      </span>
+
+                    </div>
+
+                    <div className="prescription-details-grid">
+
+                      <div className="prescription-detail-box">
+                        <span>
+                          Medicine
+                        </span>
+
+                        <strong>
+                          {prescription.medicineName ||
+                            "Not specified"}
+                        </strong>
+                      </div>
+
+                      <div className="prescription-detail-box">
+                        <span>
+                          Submitted
+                        </span>
+
+                        <strong>
+                          {formatDate(
+                            prescription.createdAt
+                          )}
+                        </strong>
+
+                        <small>
+                          {formatTime(
+                            prescription.createdAt
+                          )}
+                        </small>
+                      </div>
+
+                      <div className="prescription-detail-box">
+                        <span>
+                          Prescription File
+                        </span>
+
+                        {(
+                          prescription.filePublicId ||
+                          prescription.fileUrl
+                        ) ? (
                           <button
                             type="button"
-                            className={
-                              status ===
-                              "Pending"
-                                ? "status-btn pending active"
-                                : "status-btn pending"
-                            }
                             onClick={() =>
-                              handleStatusChange(
-                                prescription.id,
-                                "Pending"
+                              handleViewPrescription(
+                                prescription
                               )
                             }
                             disabled={
-                              isUpdating
+                              openingId === prescription.id
                             }
+                            className="prescription-view-btn"
                           >
-                            Pending
+                            {openingId === prescription.id
+                              ? "Opening..."
+                              : "👁 View Prescription"}
                           </button>
+                        ) : (
+                          <strong>
+                            File unavailable
+                          </strong>
+                        )}
+                      </div>
 
-                          <button
-                            type="button"
-                            className={
-                              status ===
-                              "Reviewed"
-                                ? "status-btn reviewed active"
-                                : "status-btn reviewed"
-                            }
-                            onClick={() =>
-                              handleStatusChange(
-                                prescription.id,
-                                "Reviewed"
-                              )
-                            }
-                            disabled={
-                              isUpdating
-                            }
-                          >
-                            Reviewed
-                          </button>
+                      <div className="prescription-detail-box">
+                        <span>
+                          File Type
+                        </span>
 
-                          <button
-                            type="button"
-                            className={
-                              status ===
-                              "Completed"
-                                ? "status-btn completed active"
-                                : "status-btn completed"
-                            }
-                            onClick={() =>
-                              handleStatusChange(
-                                prescription.id,
-                                "Completed"
-                              )
-                            }
-                            disabled={
-                              isUpdating
-                            }
-                          >
-                            {isUpdating &&
-                            status !==
-                              "Completed"
-                              ? "Updating..."
-                              : "Completed"}
-                          </button>
-
-                        </div>
-
+                        <strong>
+                          {prescription.fileType ||
+                            "Unknown"}
+                        </strong>
                       </div>
 
                     </div>
-                  );
-                }
-              )}
+
+                    {prescription.notes && (
+                      <div className="prescription-notes">
+                        <span>
+                          Customer Notes
+                        </span>
+
+                        <p>
+                          {prescription.notes}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="prescription-status-section">
+
+                      <div>
+                        <span>
+                          Update Status
+                        </span>
+
+                        <p>
+                          Keep the customer
+                          updated by changing
+                          the prescription status.
+                        </p>
+                      </div>
+
+                      <div className="prescription-status-actions">
+
+                        <button
+                          type="button"
+                          className={
+                            status === "Pending"
+                              ? "status-btn pending active"
+                              : "status-btn pending"
+                          }
+                          onClick={() =>
+                            handleStatusChange(
+                              prescription.id,
+                              "Pending"
+                            )
+                          }
+                          disabled={isUpdating}
+                        >
+                          Pending
+                        </button>
+
+                        <button
+                          type="button"
+                          className={
+                            status === "Reviewed"
+                              ? "status-btn reviewed active"
+                              : "status-btn reviewed"
+                          }
+                          onClick={() =>
+                            handleStatusChange(
+                              prescription.id,
+                              "Reviewed"
+                            )
+                          }
+                          disabled={isUpdating}
+                        >
+                          Reviewed
+                        </button>
+
+                        <button
+                          type="button"
+                          className={
+                            status === "Completed"
+                              ? "status-btn completed active"
+                              : "status-btn completed"
+                          }
+                          onClick={() =>
+                            handleStatusChange(
+                              prescription.id,
+                              "Completed"
+                            )
+                          }
+                          disabled={isUpdating}
+                        >
+                          {isUpdating &&
+                          status !== "Completed"
+                            ? "Updating..."
+                            : "Completed"}
+                        </button>
+
+                      </div>
+                    </div>
+
+                  </div>
+                );
+              })}
 
             </div>
-
           )}
 
         </section>
-
       </div>
-
     </main>
   );
 }

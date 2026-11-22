@@ -6,7 +6,6 @@ import {
   collection,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
   query,
   serverTimestamp,
@@ -62,7 +61,13 @@ function MedicineRequests() {
         const userData = userSnap.data();
 
         if (userData.role !== "pharmacy") {
-          throw new Error("Access denied. Pharmacy account required.");
+          throw new Error("Access denied. Please sign in with a pharmacy account.");
+        }
+
+        if (String(userData.status || "").toLowerCase() !== "approved") {
+          throw new Error(
+            "Your pharmacy account is not approved yet. Please contact the administrator."
+          );
         }
 
         const id = userData.pharmacyId;
@@ -134,8 +139,10 @@ function MedicineRequests() {
       where("pharmacyId", "==", pharmacyId)
     );
 
+    // Firestore rules require both conditions for broadcast requests.
     const broadcastQuery = query(
       collection(db, "medicineRequests"),
+      where("broadcast", "==", true),
       where("targetPharmacyIds", "array-contains", pharmacyId)
     );
 
@@ -155,8 +162,12 @@ function MedicineRequests() {
         updateRequests();
       },
       (err) => {
-        console.error("Legacy requests error:", err);
-        setError("Unable to load some medicine requests.");
+        console.error("Legacy requests listener error:", err);
+        setError(
+          err.code === "permission-denied"
+            ? "Some direct requests could not be loaded. Please check that your pharmacy is approved and that the latest Firestore security rules are published."
+            : "We couldn't load direct medicine requests. Please check your connection and try refreshing."
+        );
         setLoading(false);
       }
     );
@@ -172,8 +183,12 @@ function MedicineRequests() {
         updateRequests();
       },
       (err) => {
-        console.error("Broadcast requests error:", err);
-        setError("Unable to load broadcast requests.");
+        console.error("Broadcast requests listener error:", err);
+        setError(
+          err.code === "permission-denied"
+            ? "Broadcast requests are blocked by Firestore permissions. Confirm that your users/{uid} document has role 'pharmacy', status 'approved', and the correct pharmacyId, and publish the latest Firestore rules."
+            : "We couldn't load broadcast requests. Please check your internet connection and refresh the page."
+        );
         setLoading(false);
       }
     );
@@ -189,7 +204,12 @@ function MedicineRequests() {
         );
       },
       (err) => {
-        console.error("Responses loading error:", err);
+        console.error("Pharmacy responses listener error:", err);
+        setError(
+          err.code === "permission-denied"
+            ? "Your previous responses couldn't be loaded because Firestore denied access. Verify your pharmacy approval and security rules."
+            : "We couldn't load your previous responses. Please refresh the page."
+        );
       }
     );
 
@@ -334,9 +354,19 @@ function MedicineRequests() {
       };
 
       if (existingResponse) {
+        const responseUpdate = {
+          availability,
+          availableQuantity,
+          price,
+          preparationTime: responseData.preparationTime,
+          status: availability,
+          respondedAt: serverTimestamp(),
+          isRead: false
+        };
+
         await updateDoc(
           doc(db, "pharmacyResponses", existingResponse.id),
-          responseData
+          responseUpdate
         );
       } else {
         await addDoc(
@@ -358,8 +388,13 @@ function MedicineRequests() {
       });
     } catch (err) {
       console.error("Response submission error:", err);
+
       setError(
-        err.message || "Unable to submit your response."
+        err.code === "permission-denied"
+          ? "Your response couldn't be saved because Firestore denied permission. Make sure your pharmacy is approved, the request is assigned to your pharmacy, and the latest security rules are published."
+          : err.code === "unavailable"
+            ? "The service is temporarily unavailable. Please check your internet connection and try again."
+            : err.message || "We couldn't submit your response. Please try again."
       );
     } finally {
       setSubmitting("");

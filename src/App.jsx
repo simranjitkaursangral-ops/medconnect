@@ -37,14 +37,14 @@ import PharmacyApplications from "./component/admin/PharmacyApplications";
 import Pharmacies from "./component/admin/Pharmacies";
 import Users from "./component/admin/Users";
 
+
+
 function App() {
   return (
     <BrowserRouter>
-
       <Header />
 
       <Routes>
-
         <Route
           path="/"
           element={<Home />}
@@ -80,6 +80,8 @@ function App() {
           element={<PharmacyRegister />}
         />
 
+       
+
         <Route
           element={
             <ProtectedRoute
@@ -87,7 +89,6 @@ function App() {
             />
           }
         >
-
           <Route
             path="/profile"
             element={<Profile />}
@@ -112,7 +113,6 @@ function App() {
             path="/my-prescriptions"
             element={<MyPrescriptions />}
           />
-
         </Route>
 
         <Route
@@ -122,7 +122,6 @@ function App() {
             />
           }
         >
-
           <Route
             path="/pharmacy-dashboard"
             element={<PharmacyDashboard />}
@@ -157,7 +156,6 @@ function App() {
             path="/pharmacy-prescriptions"
             element={<Prescriptions />}
           />
-
         </Route>
 
         <Route
@@ -167,7 +165,6 @@ function App() {
             />
           }
         >
-
           <Route
             path="/admin-dashboard"
             element={<AdminDashboard />}
@@ -175,9 +172,7 @@ function App() {
 
           <Route
             path="/admin-pharmacy-applications"
-            element={
-              <PharmacyApplications />
-            }
+            element={<PharmacyApplications />}
           />
 
           <Route
@@ -189,18 +184,15 @@ function App() {
             path="/admin-users"
             element={<Users />}
           />
-
         </Route>
 
         <Route
           path="*"
           element={<Home />}
         />
-
       </Routes>
 
       <Footer />
-
     </BrowserRouter>
   );
 }
