@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+
 import {
   doc,
   getDoc,
@@ -30,26 +31,21 @@ function UpdateStock() {
     loadMedicine();
   }, [id]);
 
+  // VERIFY PHARMACY
   const verifyPharmacy = async () => {
-    const uid =
-      localStorage.getItem("uid");
+    const uid = localStorage.getItem("uid");
 
-    const userType =
-      localStorage.getItem("userType");
+    const userType = localStorage.getItem("userType");
 
-    if (
-      !uid ||
-      userType !== "pharmacy"
-    ) {
+    if (!uid || userType !== "pharmacy") {
       throw new Error(
         "Pharmacy session not found. Please login again."
       );
     }
 
-    const userSnapshot =
-      await getDoc(
-        doc(db, "users", uid)
-      );
+    const userSnapshot = await getDoc(
+      doc(db, "users", uid)
+    );
 
     if (!userSnapshot.exists()) {
       throw new Error(
@@ -57,8 +53,7 @@ function UpdateStock() {
       );
     }
 
-    const userData =
-      userSnapshot.data();
+    const userData = userSnapshot.data();
 
     if (
       userData.role !== "pharmacy" ||
@@ -70,14 +65,13 @@ function UpdateStock() {
       );
     }
 
-    const pharmacySnapshot =
-      await getDoc(
-        doc(
-          db,
-          "pharmacies",
-          userData.pharmacyId
-        )
-      );
+    const pharmacySnapshot = await getDoc(
+      doc(
+        db,
+        "pharmacies",
+        userData.pharmacyId
+      )
+    );
 
     if (!pharmacySnapshot.exists()) {
       throw new Error(
@@ -85,21 +79,15 @@ function UpdateStock() {
       );
     }
 
-    const pharmacyData =
-      pharmacySnapshot.data();
+    const pharmacyData = pharmacySnapshot.data();
 
-    if (
-      pharmacyData.ownerId !== uid
-    ) {
+    if (pharmacyData.ownerId !== uid) {
       throw new Error(
         "You are not authorized to manage this pharmacy."
       );
     }
 
-    if (
-      pharmacyData.status !==
-      "approved"
-    ) {
+    if (pharmacyData.status !== "approved") {
       throw new Error(
         "Your pharmacy is not approved."
       );
@@ -107,37 +95,31 @@ function UpdateStock() {
 
     return {
       uid,
-      pharmacyId:
-        userData.pharmacyId
+      pharmacyId: userData.pharmacyId
     };
   };
 
+  // LOAD MEDICINE
   const loadMedicine = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const pharmacy =
-        await verifyPharmacy();
+      const pharmacy = await verifyPharmacy();
 
-      const medicineSnapshot =
-        await getDoc(
-          doc(db, "medicines", id)
-        );
+      const medicineSnapshot = await getDoc(
+        doc(db, "medicines", id)
+      );
 
       if (!medicineSnapshot.exists()) {
-        setError(
-          "Medicine not found."
-        );
+        setError("Medicine not found.");
         return;
       }
 
-      const medicineData =
-        medicineSnapshot.data();
+      const medicineData = medicineSnapshot.data();
 
       if (
-        medicineData.pharmacyId !==
-        pharmacy.pharmacyId
+        medicineData.pharmacyId !== pharmacy.pharmacyId
       ) {
         setError(
           "You are not authorized to update this medicine."
@@ -147,29 +129,24 @@ function UpdateStock() {
 
       setFormData({
         medicineName:
-          medicineData.medicineName ||
-          "",
+          medicineData.medicineName || "",
 
         dosage:
-          medicineData.dosage ||
-          "",
+          medicineData.dosage || "",
 
         category:
-          medicineData.category ||
-          "",
+          medicineData.category || "",
 
         quantity:
-          medicineData.quantity ??
-          "",
+          medicineData.quantity ?? "",
 
         price:
-          medicineData.price ??
-          "",
+          medicineData.price ?? "",
 
         description:
-          medicineData.description ||
-          ""
+          medicineData.description || ""
       });
+
     } catch (err) {
       console.error(
         "LOAD MEDICINE ERROR:",
@@ -177,24 +154,25 @@ function UpdateStock() {
       );
 
       setError(
-        err.message ||
-          "Unable to load medicine."
+        err.message || "Unable to load medicine."
       );
+
     } finally {
       setLoading(false);
     }
   };
 
+  // HANDLE INPUT
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]:
-        e.target.value
+      [e.target.name]: e.target.value
     });
 
     setError("");
   };
 
+  // UPDATE MEDICINE
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -211,38 +189,27 @@ function UpdateStock() {
       return;
     }
 
-    const quantity =
-      Number(formData.quantity);
+    const quantity = Number(formData.quantity);
 
-    const price =
-      Number(formData.price);
+    const price = Number(formData.price);
 
     if (
-      !Number.isFinite(quantity)
+      !Number.isFinite(quantity) ||
+      !Number.isInteger(quantity) ||
+      quantity < 0
     ) {
       setError(
-        "Please enter a valid quantity."
+        "Please enter a valid whole-number quantity."
       );
       return;
     }
 
-    if (quantity < 0) {
-      setError(
-        "Quantity cannot be negative."
-      );
-      return;
-    }
-
-    if (!Number.isFinite(price)) {
+    if (
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
       setError(
         "Please enter a valid price."
-      );
-      return;
-    }
-
-    if (price < 0) {
-      setError(
-        "Price cannot be negative."
       );
       return;
     }
@@ -251,34 +218,27 @@ function UpdateStock() {
       setSaving(true);
       setError("");
 
-      const pharmacy =
-        await verifyPharmacy();
+      const pharmacy = await verifyPharmacy();
 
-      const medicineRef =
-        doc(
-          db,
-          "medicines",
-          id
-        );
+      const medicineRef = doc(
+        db,
+        "medicines",
+        id
+      );
 
-      const medicineSnapshot =
-        await getDoc(
-          medicineRef
-        );
+      const medicineSnapshot = await getDoc(
+        medicineRef
+      );
 
       if (!medicineSnapshot.exists()) {
-        setError(
-          "Medicine not found."
-        );
+        setError("Medicine not found.");
         return;
       }
 
-      const medicineData =
-        medicineSnapshot.data();
+      const medicineData = medicineSnapshot.data();
 
       if (
-        medicineData.pharmacyId !==
-        pharmacy.pharmacyId
+        medicineData.pharmacyId !== pharmacy.pharmacyId
       ) {
         setError(
           "You are not authorized to update this medicine."
@@ -286,38 +246,48 @@ function UpdateStock() {
         return;
       }
 
-      await updateDoc(
-        medicineRef,
-        {
-          medicineName:
-            formData.medicineName.trim(),
+      // DETERMINE AVAILABILITY
+      const isAvailable = quantity > 0;
 
-          dosage:
-            formData.dosage.trim(),
+      // UPDATE MEDICINE AND STOCK VERIFICATION
+      await updateDoc(medicineRef, {
+        medicineName:
+          formData.medicineName.trim(),
 
-          category:
-            formData.category.trim(),
+        dosage:
+          formData.dosage.trim(),
 
-          quantity,
+        category:
+          formData.category.trim(),
 
-          price,
+        quantity,
 
-          availability:
-            quantity > 0
-              ? "Available"
-              : "Out of Stock",
+        price,
 
-          description:
-            formData.description.trim(),
+        available: isAvailable,
 
-          updatedAt:
-            serverTimestamp()
-        }
-      );
+        availability: isAvailable
+          ? "Available"
+          : "Out of Stock",
 
-      navigate(
-        "/pharmacy-medicines"
-      );
+        description:
+          formData.description.trim(),
+
+        // GENERAL UPDATE TIME
+        updatedAt: serverTimestamp(),
+
+        // STOCK VERIFICATION
+        stockUpdatedAt: serverTimestamp(),
+
+        stockVerifiedAt: serverTimestamp(),
+
+        stockUpdateSource: "Pharmacy",
+
+        stockVerificationStatus: "Fresh"
+      });
+
+      navigate("/pharmacy-medicines");
+
     } catch (err) {
       console.error(
         "UPDATE MEDICINE ERROR:",
@@ -325,14 +295,15 @@ function UpdateStock() {
       );
 
       setError(
-        err.message ||
-          "Unable to update medicine."
+        err.message || "Unable to update medicine."
       );
+
     } finally {
       setSaving(false);
     }
   };
 
+  // AVAILABILITY PREVIEW
   const availability =
     formData.quantity === ""
       ? "Enter quantity"
@@ -439,9 +410,7 @@ function UpdateStock() {
                   <input
                     type="text"
                     name="medicineName"
-                    value={
-                      formData.medicineName
-                    }
+                    value={formData.medicineName}
                     onChange={handleChange}
                     placeholder="Example: Paracetamol"
                   />
@@ -457,9 +426,7 @@ function UpdateStock() {
                   <input
                     type="text"
                     name="dosage"
-                    value={
-                      formData.dosage
-                    }
+                    value={formData.dosage}
                     onChange={handleChange}
                     placeholder="Example: 500mg"
                   />
@@ -475,9 +442,7 @@ function UpdateStock() {
                   <input
                     type="text"
                     name="category"
-                    value={
-                      formData.category
-                    }
+                    value={formData.category}
                     onChange={handleChange}
                     placeholder="Example: Pain Relief"
                   />
@@ -493,10 +458,9 @@ function UpdateStock() {
                   <input
                     type="number"
                     min="0"
+                    step="1"
                     name="quantity"
-                    value={
-                      formData.quantity
-                    }
+                    value={formData.quantity}
                     onChange={handleChange}
                     placeholder="Enter stock quantity"
                   />
@@ -514,9 +478,7 @@ function UpdateStock() {
                     min="0"
                     step="0.01"
                     name="price"
-                    value={
-                      formData.price
-                    }
+                    value={formData.price}
                     onChange={handleChange}
                     placeholder="Enter medicine price"
                   />
@@ -534,11 +496,9 @@ function UpdateStock() {
                     value={availability}
                     readOnly
                     className={
-                      availability ===
-                      "Available"
+                      availability === "Available"
                         ? "update-availability available"
-                        : availability ===
-                          "Out of Stock"
+                        : availability === "Out of Stock"
                           ? "update-availability out"
                           : "update-availability"
                     }
@@ -554,13 +514,33 @@ function UpdateStock() {
 
                   <textarea
                     name="description"
-                    value={
-                      formData.description
-                    }
+                    value={formData.description}
                     onChange={handleChange}
                     placeholder="Enter medicine description"
                     rows="5"
                   />
+
+                </div>
+
+              </div>
+
+              {/* STOCK VERIFICATION NOTICE */}
+              <div className="stock-verification-info">
+
+                <span className="stock-verification-dot"></span>
+
+                <div>
+
+                  <strong>
+                    Stock verification will refresh
+                  </strong>
+
+                  <p>
+                    Saving these changes will update
+                    your stock confirmation time.
+                    Users will be able to see that
+                    your inventory was recently updated.
+                  </p>
 
                 </div>
 
@@ -578,9 +558,7 @@ function UpdateStock() {
                   type="button"
                   className="update-stock-cancel"
                   onClick={() =>
-                    navigate(
-                      "/pharmacy-medicines"
-                    )
+                    navigate("/pharmacy-medicines")
                   }
                 >
                   Cancel

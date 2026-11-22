@@ -1,776 +1,744 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
+
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
+  serverTimestamp,
   updateDoc,
-  where,
-  serverTimestamp
+  where
 } from "firebase/firestore";
 
-import { db } from "../../firebase/Firebase";
+import { auth, db } from "../../firebase/Firebase";
+
 
 function MedicineRequests() {
+  const location = useLocation();
+
+  const [pharmacyId, setPharmacyId] = useState("");
+  const [pharmacyName, setPharmacyName] = useState("");
+
   const [requests, setRequests] = useState([]);
-  const [filter, setFilter] = useState("All");
+  const [responses, setResponses] = useState([]);
 
   const [loading, setLoading] = useState(true);
-  const [updatingId, setUpdatingId] = useState("");
+  const [submitting, setSubmitting] = useState("");
   const [error, setError] = useState("");
 
+  const [filter, setFilter] = useState("All");
+  const [selectedRequest, setSelectedRequest] = useState(null);
+
+  const [responseForm, setResponseForm] = useState({
+    availability: "Available",
+    availableQuantity: "",
+    price: "",
+    preparationTime: ""
+  });
+
+  // Verify logged-in pharmacy
   useEffect(() => {
-    loadRequests();
+    const verifyPharmacy = async () => {
+      try {
+        const user = auth.currentUser;
+
+        if (!user) {
+          setError("Please login with your pharmacy account.");
+          setLoading(false);
+          return;
+        }
+
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) {
+          throw new Error("Pharmacy profile not found.");
+        }
+
+        const userData = userSnap.data();
+
+        if (userData.role !== "pharmacy") {
+          throw new Error("Access denied. Pharmacy account required.");
+        }
+
+        const id = userData.pharmacyId;
+
+        if (!id) {
+          throw new Error("Pharmacy profile is not linked to your account.");
+        }
+
+        const pharmacyRef = doc(db, "pharmacies", id);
+        const pharmacySnap = await getDoc(pharmacyRef);
+
+        if (!pharmacySnap.exists()) {
+          throw new Error("Pharmacy details not found.");
+        }
+
+        const pharmacyData = pharmacySnap.data();
+
+        if (
+          pharmacyData.ownerId !== user.uid ||
+          pharmacyData.status !== "approved"
+        ) {
+          throw new Error("Your pharmacy is not approved.");
+        }
+
+        setPharmacyId(id);
+        setPharmacyName(
+          pharmacyData.pharmacyName ||
+          pharmacyData.name ||
+          "Your Pharmacy"
+        );
+      } catch (err) {
+        console.error("Pharmacy verification error:", err);
+        setError(err.message || "Unable to verify pharmacy.");
+        setLoading(false);
+      }
+    };
+
+    verifyPharmacy();
   }, []);
 
-  const verifyPharmacy = async () => {
-    const uid =
-      localStorage.getItem("uid");
+  // Listen to incoming requests and pharmacy responses
+  useEffect(() => {
+    if (!pharmacyId) return;
 
-    const userType =
-      localStorage.getItem("userType");
+    setLoading(true);
 
-    if (
-      !uid ||
-      userType !== "pharmacy"
-    ) {
-      throw new Error(
-        "Pharmacy session not found. Please login again."
-      );
-    }
+    let legacyRequests = [];
+    let broadcastRequests = [];
 
-    const userSnapshot =
-      await getDoc(
-        doc(db, "users", uid)
-      );
+    const updateRequests = () => {
+      const combined = new Map();
 
-    if (!userSnapshot.exists()) {
-      throw new Error(
-        "Pharmacy profile not found."
-      );
-    }
+      [...legacyRequests, ...broadcastRequests].forEach((item) => {
+        combined.set(item.id, item);
+      });
 
-    const userData =
-      userSnapshot.data();
-
-    if (
-      userData.role !== "pharmacy" ||
-      userData.status !== "approved" ||
-      !userData.pharmacyId
-    ) {
-      throw new Error(
-        "You are not authorized to manage medicine requests."
-      );
-    }
-
-    const pharmacySnapshot =
-      await getDoc(
-        doc(
-          db,
-          "pharmacies",
-          userData.pharmacyId
-        )
-      );
-
-    if (!pharmacySnapshot.exists()) {
-      throw new Error(
-        "Your pharmacy profile was not found."
-      );
-    }
-
-    const pharmacyData =
-      pharmacySnapshot.data();
-
-    if (
-      pharmacyData.ownerId !== uid
-    ) {
-      throw new Error(
-        "You are not authorized to manage this pharmacy."
-      );
-    }
-
-    if (
-      pharmacyData.status !==
-      "approved"
-    ) {
-      throw new Error(
-        "Your pharmacy is not approved."
-      );
-    }
-
-    return {
-      uid,
-      pharmacyId:
-        userData.pharmacyId
-    };
-  };
-
-  const loadRequests = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      const pharmacy =
-        await verifyPharmacy();
-
-      const requestQuery =
-        query(
-          collection(
-            db,
-            "medicineRequests"
-          ),
-          where(
-            "pharmacyId",
-            "==",
-            pharmacy.pharmacyId
-          )
-        );
-
-      const requestSnapshot =
-        await getDocs(
-          requestQuery
-        );
-
-      const requestData =
-        requestSnapshot.docs.map(
-          (item) => ({
-            id: item.id,
-            ...item.data()
-          })
-        );
-
-      requestData.sort((a, b) => {
-        const aTime =
-          a.createdAt?.seconds || 0;
-
-        const bTime =
-          b.createdAt?.seconds || 0;
-
+      const sorted = Array.from(combined.values()).sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
         return bTime - aTime;
       });
 
-      setRequests(
-        requestData
-      );
-    } catch (err) {
-      console.error(
-        "LOAD MEDICINE REQUESTS ERROR:",
-        err
-      );
-
-      setError(
-        err.message ||
-          "Unable to load medicine requests."
-      );
-    } finally {
+      setRequests(sorted);
       setLoading(false);
-    }
+    };
+
+    const legacyQuery = query(
+      collection(db, "medicineRequests"),
+      where("pharmacyId", "==", pharmacyId)
+    );
+
+    const broadcastQuery = query(
+      collection(db, "medicineRequests"),
+      where("targetPharmacyIds", "array-contains", pharmacyId)
+    );
+
+    const responsesQuery = query(
+      collection(db, "pharmacyResponses"),
+      where("pharmacyId", "==", pharmacyId)
+    );
+
+    const unsubscribeLegacy = onSnapshot(
+      legacyQuery,
+      (snapshot) => {
+        legacyRequests = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }));
+
+        updateRequests();
+      },
+      (err) => {
+        console.error("Legacy requests error:", err);
+        setError("Unable to load some medicine requests.");
+        setLoading(false);
+      }
+    );
+
+    const unsubscribeBroadcast = onSnapshot(
+      broadcastQuery,
+      (snapshot) => {
+        broadcastRequests = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }));
+
+        updateRequests();
+      },
+      (err) => {
+        console.error("Broadcast requests error:", err);
+        setError("Unable to load broadcast requests.");
+        setLoading(false);
+      }
+    );
+
+    const unsubscribeResponses = onSnapshot(
+      responsesQuery,
+      (snapshot) => {
+        setResponses(
+          snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data()
+          }))
+        );
+      },
+      (err) => {
+        console.error("Responses loading error:", err);
+      }
+    );
+
+    return () => {
+      unsubscribeLegacy();
+      unsubscribeBroadcast();
+      unsubscribeResponses();
+    };
+  }, [pharmacyId]);
+
+  // Find this pharmacy's response for a request
+  const getResponse = (requestId) => {
+    return responses.find(
+      (response) => response.requestId === requestId
+    );
   };
 
-  const handleStatusChange = async (
-    id,
-    status
-  ) => {
-    const allowedStatuses = [
-      "Pending",
-      "Accepted",
-      "Completed",
-      "Rejected"
-    ];
+  // Filter requests
+  const filteredRequests = useMemo(() => {
+    return requests.filter((request) => {
+      const response = getResponse(request.id);
+
+      if (filter === "All") return true;
+
+      if (filter === "Pending") {
+        return !response;
+      }
+
+      if (filter === "Available") {
+        return response?.availability === "Available";
+      }
+
+      if (filter === "Not Available") {
+        return response?.availability === "Not Available";
+      }
+
+      return true;
+    });
+  }, [requests, responses, filter]);
+
+  // Highlight request opened from notification
+  useEffect(() => {
+    const requestId = location.state?.requestId;
+
+    if (!requestId || requests.length === 0) return;
+
+    const target = requests.find(
+      (request) => request.id === requestId
+    );
+
+    if (target) {
+      setFilter("All");
+      setSelectedRequest(target);
+
+      setTimeout(() => {
+        document
+          .getElementById(`request-${requestId}`)
+          ?.scrollIntoView({
+            behavior: "smooth",
+            block: "center"
+          });
+      }, 300);
+    }
+  }, [location.state, requests]);
+
+  // Update response form
+  const handleFormChange = (e) => {
+    const { name, value } = e.target;
+
+    setResponseForm((previous) => ({
+      ...previous,
+      [name]: value
+    }));
+  };
+
+  // Submit or update pharmacy response
+  const handleResponse = async (request) => {
+    setError("");
+
+    const availability = responseForm.availability;
+    const availableQuantity =
+      availability === "Available"
+        ? Number(responseForm.availableQuantity)
+        : 0;
+
+    const price =
+      availability === "Available"
+        ? Number(responseForm.price)
+        : 0;
 
     if (
-      !allowedStatuses.includes(
-        status
-      )
+      availability === "Available" &&
+      (!responseForm.availableQuantity ||
+        availableQuantity < 1)
     ) {
-      setError(
-        "Invalid request status."
-      );
+      setError("Please enter a valid available quantity.");
+      return;
+    }
+
+    if (
+      availability === "Available" &&
+      (!responseForm.price || price < 0)
+    ) {
+      setError("Please enter a valid medicine price.");
+      return;
+    }
+
+    if (
+      availability === "Available" &&
+      !responseForm.preparationTime.trim()
+    ) {
+      setError("Please enter the preparation time.");
       return;
     }
 
     try {
-      setUpdatingId(id);
-      setError("");
+      setSubmitting(request.id);
 
-      const pharmacy =
-        await verifyPharmacy();
+      const existingResponse = getResponse(request.id);
 
-      const requestRef =
-        doc(
-          db,
-          "medicineRequests",
-          id
+      const responseData = {
+        requestId: request.id,
+        userId: request.userId,
+        pharmacyId,
+        pharmacyName,
+
+        medicineName: request.medicineName,
+
+        availability,
+        availableQuantity,
+        price,
+
+        preparationTime:
+          availability === "Available"
+            ? responseForm.preparationTime.trim()
+            : "",
+
+        status: availability,
+        isRead: false,
+        respondedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      if (existingResponse) {
+        await updateDoc(
+          doc(db, "pharmacyResponses", existingResponse.id),
+          responseData
         );
-
-      const requestSnapshot =
-        await getDoc(
-          requestRef
+      } else {
+        await addDoc(
+          collection(db, "pharmacyResponses"),
+          {
+            ...responseData,
+            createdAt: serverTimestamp()
+          }
         );
-
-      if (
-        !requestSnapshot.exists()
-      ) {
-        setError(
-          "Medicine request not found."
-        );
-        return;
       }
 
-      const requestData =
-        requestSnapshot.data();
+      setSelectedRequest(null);
 
-      if (
-        requestData.pharmacyId !==
-        pharmacy.pharmacyId
-      ) {
-        setError(
-          "You are not authorized to update this request."
-        );
-        return;
-      }
-
-      await updateDoc(
-        requestRef,
-        {
-          status,
-          updatedAt:
-            serverTimestamp()
-        }
-      );
-
-      setRequests((current) =>
-        current.map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                status
-              }
-            : item
-        )
-      );
+      setResponseForm({
+        availability: "Available",
+        availableQuantity: "",
+        price: "",
+        preparationTime: ""
+      });
     } catch (err) {
-      console.error(
-        "UPDATE REQUEST ERROR:",
-        err
-      );
-
+      console.error("Response submission error:", err);
       setError(
-        err.message ||
-          "Unable to update request status."
+        err.message || "Unable to submit your response."
       );
     } finally {
-      setUpdatingId("");
+      setSubmitting("");
     }
   };
 
-  const filteredRequests =
-    filter === "All"
-      ? requests
-      : requests.filter(
-          (item) =>
-            item.status === filter
-        );
+  // Format date
+  const formatDate = (timestamp) => {
+    if (!timestamp?.toDate) return "Recently";
 
-  const formatDate = (
-    timestamp
-  ) => {
-    if (!timestamp) {
-      return "Date unavailable";
-    }
-
-    const date =
-      timestamp.toDate
-        ? timestamp.toDate()
-        : new Date(
-            timestamp.seconds *
-              1000
-          );
-
-    return date.toLocaleDateString(
-      "en-IN",
-      {
-        day: "2-digit",
-        month: "short",
-        year: "numeric"
-      }
-    );
+    return timestamp.toDate().toLocaleString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
   };
 
-  const formatTime = (
-    timestamp
-  ) => {
-    if (!timestamp) {
-      return "";
-    }
+  const pendingCount = requests.filter(
+    (request) => !getResponse(request.id)
+  ).length;
 
-    const date =
-      timestamp.toDate
-        ? timestamp.toDate()
-        : new Date(
-            timestamp.seconds *
-              1000
-          );
+  const availableCount = responses.filter(
+    (response) => response.availability === "Available"
+  ).length;
 
-    return date.toLocaleTimeString(
-      "en-IN",
-      {
-        hour: "2-digit",
-        minute: "2-digit"
-      }
-    );
-  };
+  const unavailableCount = responses.filter(
+    (response) => response.availability === "Not Available"
+  ).length;
 
-  const getStatusClass = (
-    status
-  ) => {
-    if (
-      status === "Accepted"
-    ) {
-      return "available";
-    }
-
-    if (
-      status === "Completed"
-    ) {
-      return "completed";
-    }
-
-    if (
-      status === "Rejected"
-    ) {
-      return "rejected";
-    }
-
-    return "pending";
-  };
-
-  if (loading) {
+  if (loading && !pharmacyId) {
     return (
-      <main className="medicine-requests-page">
+      <div className="medicine-requests-loading">
+        <div className="requests-loader"></div>
+        <p>Loading pharmacy requests...</p>
+      </div>
+    );
+  }
 
-        <div className="medicine-requests-loading">
-
-          <div className="medicine-requests-spinner"></div>
-
-          <h3>
-            Loading medicine requests...
-          </h3>
-
-          <p>
-            Please wait while we load customer requests.
-          </p>
-
-        </div>
-
-      </main>
+  if (error && !pharmacyId) {
+    return (
+      <div className="medicine-requests-page">
+        <div className="medicine-request-error">{error}</div>
+      </div>
     );
   }
 
   return (
-    <main className="medicine-requests-page">
+    <div className="medicine-requests-page">
+
+      <div className="medicine-requests-header">
+        <div>
+          <span className="medicine-requests-label">
+            PHARMACY MANAGEMENT
+          </span>
+
+          <h1>Medicine Requests</h1>
+
+          <p>
+            Review customer requests and update medicine availability.
+          </p>
+        </div>
+
+        <div className="pharmacy-name-badge">
+          {pharmacyName}
+        </div>
+      </div>
 
       <div className="medicine-requests-container">
 
-        <section className="medicine-requests-hero">
+        {error && (
+          <div className="medicine-request-error">
+            {error}
+            <button onClick={() => setError("")}>×</button>
+          </div>
+        )}
 
-          <div className="medicine-requests-hero-content">
+        {/* SUMMARY CARDS */}
 
-            <span className="medicine-requests-badge">
-              MEDICINE REQUEST MANAGEMENT
-            </span>
+        <div className="medicine-request-stats">
 
-            <h1>
-              Medicine Requests
-            </h1>
+          <div className="medicine-request-stat">
+            <span>Total Requests</span>
+            <h2>{requests.length}</h2>
+            <small>Requests received</small>
+          </div>
+
+          <div className="medicine-request-stat pending-stat">
+            <span>Awaiting Response</span>
+            <h2>{pendingCount}</h2>
+            <small>Need your attention</small>
+          </div>
+
+          <div className="medicine-request-stat available-stat">
+            <span>Available</span>
+            <h2>{availableCount}</h2>
+            <small>Positive responses</small>
+          </div>
+
+          <div className="medicine-request-stat unavailable-stat">
+            <span>Unavailable</span>
+            <h2>{unavailableCount}</h2>
+            <small>Unavailable responses</small>
+          </div>
+
+        </div>
+
+        {/* FILTERS */}
+
+        <div className="medicine-requests-toolbar">
+          <div>
+            <h2>Customer Requests</h2>
+            <p>Manage incoming medicine enquiries.</p>
+          </div>
+
+          <div className="medicine-request-filters">
+            {["All", "Pending", "Available", "Not Available"].map(
+              (item) => (
+                <button
+                  key={item}
+                  className={filter === item ? "active" : ""}
+                  onClick={() => setFilter(item)}
+                >
+                  {item}
+                </button>
+              )
+            )}
+          </div>
+        </div>
+
+        {/* REQUEST LIST */}
+
+        {loading ? (
+          <div className="medicine-request-empty">
+            Loading requests...
+          </div>
+        ) : filteredRequests.length === 0 ? (
+          <div className="medicine-request-empty">
+            <div className="request-empty-icon">⌕</div>
+
+            <h3>No requests found</h3>
 
             <p>
-              Review medicine requests received
-              from customers and update their status.
+              {filter === "All"
+                ? "New customer medicine requests will appear here."
+                : `There are no ${filter.toLowerCase()} requests.`}
             </p>
-
           </div>
+        ) : (
+          <div className="medicine-request-list">
 
-          <div className="medicine-requests-hero-icon">
-            📩
-          </div>
+            {filteredRequests.map((request) => {
+              const response = getResponse(request.id);
 
-        </section>
+              const isSelected =
+                selectedRequest?.id === request.id;
 
-        <section className="medicine-requests-card">
+              return (
+                <div
+                  className={`medicine-request-card ${
+                    location.state?.requestId === request.id
+                      ? "highlight-request"
+                      : ""
+                  }`}
+                  id={`request-${request.id}`}
+                  key={request.id}
+                >
 
-          <div className="medicine-requests-header">
+                  <div className="medicine-request-card-top">
 
-            <div>
-
-              <span className="medicine-requests-label">
-                PHARMACY REQUESTS
-              </span>
-
-              <h2>
-                Customer Requests
-              </h2>
-
-              <p>
-                Manage medicine requests sent to
-                your pharmacy.
-              </p>
-
-            </div>
-
-            <div className="medicine-requests-total">
-
-              <strong>
-                {requests.length}
-              </strong>
-
-              <span>
-                Total
-              </span>
-
-            </div>
-
-          </div>
-
-          {error && (
-            <div className="medicine-requests-error">
-              {error}
-            </div>
-          )}
-
-          <div className="medicine-requests-filters">
-
-            {[
-              "All",
-              "Pending",
-              "Accepted",
-              "Completed",
-              "Rejected"
-            ].map((item) => (
-
-              <button
-                key={item}
-                type="button"
-                className={
-                  filter === item
-                    ? "medicine-request-filter active"
-                    : "medicine-request-filter"
-                }
-                onClick={() =>
-                  setFilter(item)
-                }
-              >
-
-                {item}
-
-                <span>
-                  {item === "All"
-                    ? requests.length
-                    : requests.filter(
-                        (request) =>
-                          request.status ===
-                          item
-                      ).length}
-                </span>
-
-              </button>
-
-            ))}
-
-          </div>
-
-          {filteredRequests.length === 0 ? (
-
-            <div className="medicine-requests-empty">
-
-              <div className="medicine-requests-empty-icon">
-                📩
-              </div>
-
-              <h3>
-                No Requests Found
-              </h3>
-
-              <p>
-                There are no medicine requests
-                in the selected category.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="medicine-requests-list">
-
-              {filteredRequests.map(
-                (request) => (
-
-                  <div
-                    className="medicine-request-item"
-                    key={request.id}
-                  >
-
-                    <div className="medicine-request-top">
-
-                      <div className="medicine-request-customer">
-
-                        <div className="medicine-request-avatar">
-
-                          {(
-                            request.userName ||
-                            "U"
-                          )
-                            .charAt(0)
-                            .toUpperCase()}
-
-                        </div>
-
-                        <div>
-
-                          <h3>
-                            {request.userName ||
-                              "Customer"}
-                          </h3>
-
-                          <p>
-                            {request.userEmail ||
-                              "Email unavailable"}
-                          </p>
-
-                        </div>
-
-                      </div>
-
-                      <span
-                        className={`medicine-request-status ${getStatusClass(
-                          request.status
-                        )}`}
-                      >
-                        ●{" "}
-                        {request.status ||
-                          "Pending"}
+                    <div>
+                      <span className="request-id">
+                        REQUEST #{request.id.slice(0, 8).toUpperCase()}
                       </span>
 
+                      <h3>{request.medicineName}</h3>
+
+                      <span
+                        className={`request-status ${
+                          response
+                            ? response.availability === "Available"
+                              ? "status-available"
+                              : "status-unavailable"
+                            : "status-pending"
+                        }`}
+                      >
+                        {response?.availability || "Pending"}
+                      </span>
                     </div>
 
-                    <div className="medicine-request-details">
+                    <span className="request-date">
+                      {formatDate(request.createdAt)}
+                    </span>
 
-                      <div className="medicine-request-detail-box">
+                  </div>
 
-                        <span>
-                          Medicine
-                        </span>
+                  <div className="medicine-request-details">
 
-                        <strong>
-                          {request.medicineName ||
-                            "Not specified"}
-                        </strong>
-
-                      </div>
-
-                      <div className="medicine-request-detail-box">
-
-                        <span>
-                          Quantity
-                        </span>
-
-                        <strong>
-                          {request.quantity ||
-                            0}
-                        </strong>
-
-                      </div>
-
-                      <div className="medicine-request-detail-box">
-
-                        <span>
-                          Dosage
-                        </span>
-
-                        <strong>
-                          {request.dosage ||
-                            "Not specified"}
-                        </strong>
-
-                      </div>
-
-                      <div className="medicine-request-detail-box">
-
-                        <span>
-                          Requested
-                        </span>
-
-                        <strong>
-                          {formatDate(
-                            request.createdAt
-                          )}
-                        </strong>
-
-                        <small>
-                          {formatTime(
-                            request.createdAt
-                          )}
-                        </small>
-
-                      </div>
-
+                    <div>
+                      <span>Quantity</span>
+                      <strong>{request.quantity || "—"}</strong>
                     </div>
 
-                    {request.location && (
+                    <div>
+                      <span>Dosage</span>
+                      <strong>{request.dosage || "Not specified"}</strong>
+                    </div>
 
-                      <div className="medicine-request-location">
+                    <div>
+                      <span>Customer</span>
+                      <strong>{request.userName || "Customer"}</strong>
+                    </div>
 
-                        <span>
-                          Customer Location
-                        </span>
-
-                        <p>
-                          📍 {request.location}
-                        </p>
-
-                      </div>
-
-                    )}
-
-                    {request.message && (
-
-                      <div className="medicine-request-message">
-
-                        <span>
-                          Customer Message
-                        </span>
-
-                        <p>
-                          {request.message}
-                        </p>
-
-                      </div>
-
-                    )}
-
-                    <div className="medicine-request-status-section">
-
-                      <div>
-
-                        <span>
-                          Update Status
-                        </span>
-
-                        <p>
-                          Change the request
-                          status for this customer.
-                        </p>
-
-                      </div>
-
-                      <div className="medicine-request-status-actions">
-
-                        <button
-                          type="button"
-                          className={
-                            request.status ===
-                            "Pending"
-                              ? "request-status-btn pending active"
-                              : "request-status-btn pending"
-                          }
-                          onClick={() =>
-                            handleStatusChange(
-                              request.id,
-                              "Pending"
-                            )
-                          }
-                          disabled={
-                            updatingId ===
-                            request.id
-                          }
-                        >
-                          Pending
-                        </button>
-
-                        <button
-                          type="button"
-                          className={
-                            request.status ===
-                            "Accepted"
-                              ? "request-status-btn available active"
-                              : "request-status-btn available"
-                          }
-                          onClick={() =>
-                            handleStatusChange(
-                              request.id,
-                              "Accepted"
-                            )
-                          }
-                          disabled={
-                            updatingId ===
-                            request.id
-                          }
-                        >
-                          Accepted
-                        </button>
-
-                        <button
-                          type="button"
-                          className={
-                            request.status ===
-                            "Completed"
-                              ? "request-status-btn completed active"
-                              : "request-status-btn completed"
-                          }
-                          onClick={() =>
-                            handleStatusChange(
-                              request.id,
-                              "Completed"
-                            )
-                          }
-                          disabled={
-                            updatingId ===
-                            request.id
-                          }
-                        >
-                          Completed
-                        </button>
-
-                        <button
-                          type="button"
-                          className={
-                            request.status ===
-                            "Rejected"
-                              ? "request-status-btn rejected active"
-                              : "request-status-btn rejected"
-                          }
-                          onClick={() =>
-                            handleStatusChange(
-                              request.id,
-                              "Rejected"
-                            )
-                          }
-                          disabled={
-                            updatingId ===
-                            request.id
-                          }
-                        >
-                          Rejected
-                        </button>
-
-                      </div>
-
+                    <div>
+                      <span>Location</span>
+                      <strong>{request.location || "Not provided"}</strong>
                     </div>
 
                   </div>
-                )
-              )}
 
-            </div>
+                  {request.message && (
+                    <div className="request-customer-message">
+                      <span>Additional Message</span>
+                      <p>{request.message}</p>
+                    </div>
+                  )}
 
-          )}
+                  {response && (
+                    <div className="existing-pharmacy-response">
+                      <div>
+                        <span>Your Response</span>
+                        <strong>{response.availability}</strong>
+                      </div>
 
-        </section>
+                      {response.availability === "Available" && (
+                        <>
+                          <div>
+                            <span>Available Quantity</span>
+                            <strong>{response.availableQuantity}</strong>
+                          </div>
+
+                          <div>
+                            <span>Price</span>
+                            <strong>₹{response.price}</strong>
+                          </div>
+
+                          <div>
+                            <span>Preparation</span>
+                            <strong>{response.preparationTime}</strong>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="medicine-request-card-actions">
+
+                    <button
+                      className="respond-request-btn"
+                      onClick={() => {
+                        setSelectedRequest(
+                          isSelected ? null : request
+                        );
+
+                        setResponseForm({
+                          availability: response?.availability || "Available",
+                          availableQuantity:
+                            response?.availableQuantity?.toString() || "",
+                          price: response?.price?.toString() || "",
+                          preparationTime:
+                            response?.preparationTime || ""
+                        });
+                      }}
+                    >
+                      {isSelected
+                        ? "Close Response"
+                        : response
+                          ? "Update Response"
+                          : "Respond to Request"}
+                    </button>
+
+                  </div>
+
+                  {isSelected && (
+                    <div className="pharmacy-response-form">
+
+                      <h4>
+                        {response
+                          ? "Update Your Response"
+                          : "Send Your Response"}
+                      </h4>
+
+                      <div className="response-form-group">
+                        <label>Medicine Availability</label>
+
+                        <select
+                          name="availability"
+                          value={responseForm.availability}
+                          onChange={handleFormChange}
+                        >
+                          <option value="Available">Available</option>
+                          <option value="Not Available">
+                            Not Available
+                          </option>
+                        </select>
+                      </div>
+
+                      {responseForm.availability === "Available" && (
+                        <>
+                          <div className="response-form-row">
+
+                            <div className="response-form-group">
+                              <label>Available Quantity *</label>
+
+                              <input
+                                type="number"
+                                min="1"
+                                name="availableQuantity"
+                                value={responseForm.availableQuantity}
+                                onChange={handleFormChange}
+                                placeholder="Enter quantity"
+                              />
+                            </div>
+
+                            <div className="response-form-group">
+                              <label>Price (₹) *</label>
+
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                name="price"
+                                value={responseForm.price}
+                                onChange={handleFormChange}
+                                placeholder="Enter price"
+                              />
+                            </div>
+
+                          </div>
+
+                          <div className="response-form-group">
+                            <label>Preparation Time *</label>
+
+                            <input
+                              type="text"
+                              name="preparationTime"
+                              value={responseForm.preparationTime}
+                              onChange={handleFormChange}
+                              placeholder="Example: 15 minutes"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      <button
+                        className="send-pharmacy-response-btn"
+                        disabled={submitting === request.id}
+                        onClick={() => handleResponse(request)}
+                      >
+                        {submitting === request.id
+                          ? "Submitting..."
+                          : response
+                            ? "Update Response"
+                            : "Submit Response"}
+                      </button>
+
+                    </div>
+                  )}
+
+                </div>
+              );
+            })}
+
+          </div>
+        )}
 
       </div>
-
-    </main>
+    </div>
   );
 }
 

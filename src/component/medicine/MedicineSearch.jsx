@@ -1,17 +1,55 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-
 function MedicineSearch() {
   const navigate = useNavigate();
 
   const [medicine, setMedicine] = useState("");
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
   const [error, setError] = useState("");
+
+  const states = [
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chhattisgarh",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal",
+    "Delhi",
+    "Jammu and Kashmir",
+    "Ladakh",
+    "Puducherry",
+    "Chandigarh"
+  ];
 
   const handleSearch = (e) => {
     e.preventDefault();
 
     const searchText = medicine.trim();
+    const cityText = city.trim();
 
     if (!searchText) {
       setError("Please enter a medicine name.");
@@ -20,7 +58,19 @@ function MedicineSearch() {
 
     setError("");
 
-    navigate(`/results?medicine=${encodeURIComponent(searchText)}`);
+    const params = new URLSearchParams();
+
+    params.set("medicine", searchText);
+
+    if (state) {
+      params.set("state", state);
+    }
+
+    if (cityText) {
+      params.set("city", cityText);
+    }
+
+    navigate(`/results?${params.toString()}`);
   };
 
   return (
@@ -85,10 +135,51 @@ function MedicineSearch() {
                 )}
               </div>
 
-              <button type="submit" className="medicine-search-btn">
+              <button
+                type="submit"
+                className="medicine-search-btn"
+              >
                 Search
                 <span>→</span>
               </button>
+            </div>
+
+            <div>
+              <label htmlFor="medicineState">
+                State <span>(Optional)</span>
+              </label>
+
+              <div className="medicine-search-input">
+                <select
+                  id="medicineState"
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                >
+                  <option value="">All States</option>
+
+                  {states.map((stateName) => (
+                    <option key={stateName} value={stateName}>
+                      {stateName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="medicineCity">
+                City <span>(Optional)</span>
+              </label>
+
+              <div className="medicine-search-input">
+                <input
+                  id="medicineCity"
+                  type="text"
+                  placeholder="e.g. Ludhiana"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                />
+              </div>
             </div>
 
             {error && (
@@ -96,7 +187,8 @@ function MedicineSearch() {
             )}
 
             <p className="medicine-search-hint">
-              Enter the medicine name or its strength to get started.
+              Enter a medicine name and optionally select your
+              location to find nearby pharmacy listings.
             </p>
           </form>
 

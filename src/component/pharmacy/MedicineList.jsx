@@ -83,10 +83,11 @@ function MedicineList() {
 
       if (
         userData.role !== "pharmacy" ||
-        userData.pharmacyId !== pharmacyId
+        userData.pharmacyId !== pharmacyId ||
+        userData.status !== "approved"
       ) {
 
-        setError("Invalid pharmacy account.");
+        setError("Invalid or unapproved pharmacy account.");
 
         return;
 
@@ -112,7 +113,10 @@ function MedicineList() {
       const pharmacyData = pharmacySnapshot.data();
 
 
-      if (pharmacyData.ownerId !== uid) {
+      if (
+        pharmacyData.ownerId !== uid ||
+        pharmacyData.status !== "approved"
+      ) {
 
         setError("You are not authorized to manage this pharmacy.");
 
@@ -200,12 +204,40 @@ function MedicineList() {
       setError("");
 
 
+      const uid = localStorage.getItem("uid");
+
       const pharmacyId = localStorage.getItem("pharmacyId");
 
 
-      if (medicine.pharmacyId !== pharmacyId) {
+      if (
+        !uid ||
+        localStorage.getItem("userType") !== "pharmacy" ||
+        medicine.pharmacyId !== pharmacyId
+      ) {
 
         setError("You cannot delete this medicine.");
+
+        return;
+
+      }
+
+
+      // VERIFY OWNERSHIP AGAIN
+
+      const pharmacySnapshot = await getDoc(
+
+        doc(db, "pharmacies", pharmacyId)
+
+      );
+
+
+      if (
+        !pharmacySnapshot.exists() ||
+        pharmacySnapshot.data().ownerId !== uid ||
+        pharmacySnapshot.data().status !== "approved"
+      ) {
+
+        setError("You are not authorized to delete this medicine.");
 
         return;
 
@@ -272,18 +304,126 @@ function MedicineList() {
 
   const availableCount = medicines.filter(
 
-    (medicine) =>
-
-      medicine.available === true ||
-
-      medicine.availability === "Available" ||
-
-      Number(medicine.quantity) > 0
+    (medicine) => Number(medicine.quantity) > 0
 
   ).length;
 
 
   const outOfStockCount = medicines.length - availableCount;
+
+
+  // STOCK VERIFICATION STATUS
+
+  const getStockVerification = (medicine) => {
+
+    const quantity = Number(medicine.quantity || 0);
+
+    if (quantity <= 0) {
+
+      return {
+
+        label: "Out of Stock",
+
+        className: "stock-unavailable",
+
+        date: "No available stock"
+
+      };
+
+    }
+
+
+    const stockTimestamp =
+
+      medicine.stockVerifiedAt ||
+
+      medicine.stockUpdatedAt ||
+
+      medicine.updatedAt;
+
+
+    if (!stockTimestamp) {
+
+      return {
+
+        label: "Needs Confirmation",
+
+        className: "stock-stale",
+
+        date: "Verification date unavailable"
+
+      };
+
+    }
+
+
+    const stockDate =
+
+      typeof stockTimestamp.toDate === "function"
+
+        ? stockTimestamp.toDate()
+
+        : new Date(stockTimestamp);
+
+
+    if (Number.isNaN(stockDate.getTime())) {
+
+      return {
+
+        label: "Needs Confirmation",
+
+        className: "stock-stale",
+
+        date: "Verification date unavailable"
+
+      };
+
+    }
+
+
+    const hoursDifference =
+
+      (Date.now() - stockDate.getTime()) / (1000 * 60 * 60);
+
+
+    if (hoursDifference <= 24 && hoursDifference >= 0) {
+
+      return {
+
+        label: "Recently Verified",
+
+        className: "stock-fresh",
+
+        date: stockDate.toLocaleString("en-IN", {
+
+          dateStyle: "medium",
+
+          timeStyle: "short"
+
+        })
+
+      };
+
+    }
+
+
+    return {
+
+      label: "Needs Confirmation",
+
+      className: "stock-stale",
+
+      date: stockDate.toLocaleString("en-IN", {
+
+        dateStyle: "medium",
+
+        timeStyle: "short"
+
+      })
+
+    };
+
+  };
 
 
   if (loading) {
@@ -581,13 +721,10 @@ function MedicineList() {
                   const quantity = Number(medicine.quantity || 0);
 
 
-                  const isAvailable =
+                  const isAvailable = quantity > 0;
 
-                    medicine.available === true ||
 
-                    medicine.availability === "Available" ||
-
-                    quantity > 0;
+                  const stockStatus = getStockVerification(medicine);
 
 
                   return (
@@ -712,6 +849,39 @@ function MedicineList() {
                       </div>
 
 
+                      {/* STOCK VERIFICATION */}
+
+                      <div className="medicine-stock-verification">
+
+
+                        <div className="medicine-stock-heading">
+
+                          <span className="medicine-stock-label">
+
+                            STOCK VERIFICATION
+
+                          </span>
+
+
+                          <span className={`stock-verification-badge ${stockStatus.className}`}>
+
+                            {stockStatus.label}
+
+                          </span>
+
+                        </div>
+
+
+                        <p>
+
+                          Last updated: {stockStatus.date}
+
+                        </p>
+
+
+                      </div>
+
+
                       {/* ACTIONS */}
 
                       <div className="application-actions">
@@ -725,7 +895,7 @@ function MedicineList() {
 
                         >
 
-                          Update
+                          Update Stock
 
                         </Link>
 
