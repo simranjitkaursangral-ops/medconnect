@@ -37,7 +37,7 @@ import PharmacyApplications from "./component/admin/PharmacyApplications";
 import Pharmacies from "./component/admin/Pharmacies";
 import Users from "./component/admin/Users";
 
-
+import AIMedicineAssistant from "./component/ai/AIMedicineAssistant";
 
 function App() {
   return (
@@ -80,7 +80,11 @@ function App() {
           element={<PharmacyRegister />}
         />
 
-       
+        {/* AI route must be placed before the wildcard route. */}
+        <Route
+          path="/ai-assistant"
+          element={<AIMedicineAssistant />}
+        />
 
         <Route
           element={

@@ -31,6 +31,124 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 
+
+// Free, browser-based smart matching. It compares the user's words with
+// medicine details already saved in Firestore; it does not invent synonyms.
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/(\d)(mg|mcg|ml|gm|g)\b/g, "$1 $2")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getEditDistance(first, second) {
+  const rows = first.length + 1;
+  const columns = second.length + 1;
+  const table = Array.from({ length: rows }, () =>
+    Array(columns).fill(0)
+  );
+
+  for (let row = 0; row < rows; row += 1) table[row][0] = row;
+  for (let column = 0; column < columns; column += 1) {
+    table[0][column] = column;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const cost = first[row - 1] === second[column - 1] ? 0 : 1;
+
+      table[row][column] = Math.min(
+        table[row - 1][column] + 1,
+        table[row][column - 1] + 1,
+        table[row - 1][column - 1] + cost
+      );
+    }
+  }
+
+  return table[rows - 1][columns - 1];
+}
+
+function getMedicineSearchScore(medicine, searchText) {
+  const queryText = normalizeSearchText(searchText);
+  if (!queryText) return 1;
+
+  const searchableFields = [
+    medicine.medicineName,
+    medicine.brand,
+    medicine.manufacturer,
+    medicine.composition,
+    medicine.category,
+    medicine.dosage,
+    medicine.dosageForm,
+    medicine.packSize,
+    medicine.description,
+    medicine.uses
+  ];
+
+  const searchableText = normalizeSearchText(
+    searchableFields.filter(Boolean).join(" ")
+  );
+
+  if (!searchableText) return 0;
+  if (searchableText.includes(queryText)) return 100;
+
+  const ignoredWords = new Set([
+    "a", "an", "the", "is", "are", "do", "does", "you", "have",
+    "show", "me", "find", "need", "want", "please", "medicine",
+    "medicines", "tablet", "tablets", "available", "availability",
+    "near", "my"
+  ]);
+
+  const queryWords = queryText
+    .split(" ")
+    .filter((word) => word && !ignoredWords.has(word));
+
+  if (queryWords.length === 0) return 0;
+
+  const medicineWords = searchableText.split(" ").filter(Boolean);
+  let totalScore = 0;
+
+  for (const queryWord of queryWords) {
+    let bestScore = 0;
+
+    for (const medicineWord of medicineWords) {
+      if (medicineWord === queryWord) {
+        bestScore = 1;
+        break;
+      }
+
+      if (
+        medicineWord.startsWith(queryWord) ||
+        queryWord.startsWith(medicineWord)
+      ) {
+        bestScore = Math.max(bestScore, 0.92);
+        continue;
+      }
+
+      // Avoid speculative fuzzy matches for very short words/numbers.
+      if (queryWord.length < 4 || medicineWord.length < 4) continue;
+      if (Math.abs(queryWord.length - medicineWord.length) > 2) continue;
+
+      const distance = getEditDistance(queryWord, medicineWord);
+      const similarity =
+        1 - distance / Math.max(queryWord.length, medicineWord.length);
+
+      if (similarity >= 0.72) {
+        bestScore = Math.max(bestScore, similarity);
+      }
+    }
+
+    // Every meaningful search word must match to avoid unrelated results.
+    if (bestScore === 0) return 0;
+    totalScore += bestScore;
+  }
+
+  return (totalScore / queryWords.length) * 90;
+}
+
 function MedicineResults() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -287,27 +405,25 @@ function MedicineResults() {
   const filteredMedicines = useMemo(() => {
     let result = medicines.filter(isApproved);
 
-    const normalizedMedicine = medicineQuery.trim().toLowerCase();
+    const normalizedMedicine = medicineQuery.trim();
     const normalizedCity = cityQuery.trim().toLowerCase();
     const normalizedState = stateQuery.trim().toLowerCase();
 
     if (normalizedMedicine) {
-      result = result.filter((item) => {
-        const searchableText = [
-          item.medicineName,
-          item.dosage,
-          item.category,
-          item.brand,
-          item.manufacturer,
-          item.composition,
-          item.description
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+      result = result
+        .map((item) => ({
+          ...item,
+          _smartSearchScore: getMedicineSearchScore(item, normalizedMedicine)
+        }))
+        .filter((item) => item._smartSearchScore > 0);
 
-        return searchableText.includes(normalizedMedicine);
-      });
+      // Put the closest text matches first when the user selects Relevance.
+      if (sortBy === "relevant") {
+        result.sort(
+          (first, second) =>
+            second._smartSearchScore - first._smartSearchScore
+        );
+      }
     }
 
     if (normalizedCity) {
@@ -524,6 +640,9 @@ function MedicineResults() {
             <p>
               {filteredMedicines.length} matching listings found
             </p>
+            <small style={{ color: "#64748b" }}>
+              Smart matching checks medicine names, brands, composition and common spelling mistakes.
+            </small>
           </div>
 
           <div className="mr-summary-available">
