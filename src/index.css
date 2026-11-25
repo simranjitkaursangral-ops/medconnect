@@ -6935,6 +6935,13 @@
    DISTANCE BOX
 ========================================= */
 
+.pharmacy-hero-distance-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 200px;
+}
+
 .pharmacy-distance-box {
   min-width: 185px;
   padding: 17px 20px;
@@ -6944,6 +6951,46 @@
   background: #f0faf4;
   border: 1px solid #d9eee1;
   border-radius: 12px;
+}
+
+.pharmacy-distance-box.clickable {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.pharmacy-distance-box.clickable:hover {
+  transform: translateY(-2px);
+  border-color: #b5e4c7;
+  box-shadow: 0 4px 14px rgba(22, 131, 78, 0.12);
+}
+
+.pharmacy-distance-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 16px;
+  background: #16834e;
+  color: #ffffff;
+  border: none;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 2px 7px rgba(22, 131, 78, 0.2);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.pharmacy-distance-open-btn:hover {
+  background: #106f41;
+  box-shadow: 0 4px 12px rgba(22, 131, 78, 0.3);
+  transform: translateY(-1px);
+}
+
+.pharmacy-distance-open-btn:active {
+  transform: translateY(0);
 }
 
 .pharmacy-distance-box > span {
@@ -6974,6 +7021,55 @@
   color: #16834e;
   font-size: 15px;
   font-weight: 800;
+}
+
+.pharmacy-location-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pharmacy-directions-banner-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 16px;
+  background: #ffffff;
+  color: #16834e;
+  border: 1px solid #16834e;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.pharmacy-directions-banner-btn:hover {
+  background: #16834e;
+  color: #ffffff;
+}
+
+.pharmacy-info-directions-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: #16834e;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.2s ease;
+}
+
+.pharmacy-info-directions-btn:hover {
+  color: #0f6139;
 }
 
 /* =========================================
@@ -7659,8 +7755,26 @@
     font-size: 12px;
   }
 
+  .pharmacy-hero-distance-card {
+    width: 100%;
+  }
+
   .pharmacy-distance-box {
     width: 100%;
+  }
+
+  .pharmacy-distance-open-btn {
+    width: 100%;
+  }
+
+  .pharmacy-location-banner-actions {
+    width: 100%;
+    margin-top: 6px;
+  }
+
+  .pharmacy-location-banner-actions button {
+    flex: 1;
+    justify-content: center;
   }
 
   .pharmacy-location-banner {

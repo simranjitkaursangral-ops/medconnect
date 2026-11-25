@@ -198,6 +198,53 @@ function PharmacyDetails() {
     );
   };
 
+  const handleOpenDirections = () => {
+    if (!userLocation && navigator.geolocation) {
+      getUserLocation();
+    }
+
+    const hasLatLong =
+      pharmacy?.latitude !== undefined &&
+      pharmacy?.latitude !== null &&
+      pharmacy?.latitude !== "" &&
+      pharmacy?.longitude !== undefined &&
+      pharmacy?.longitude !== null &&
+      pharmacy?.longitude !== "" &&
+      !Number.isNaN(Number(pharmacy.latitude)) &&
+      !Number.isNaN(Number(pharmacy.longitude));
+
+    let destination = "";
+    if (hasLatLong) {
+      destination = `${Number(pharmacy.latitude)},${Number(pharmacy.longitude)}`;
+    } else {
+      const addressParts = [
+        pharmacy?.name,
+        pharmacy?.address,
+        pharmacy?.city,
+        pharmacy?.state
+      ]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean);
+
+      destination = addressParts.join(", ");
+    }
+
+    if (!destination) {
+      alert("Pharmacy location details are unavailable.");
+      return;
+    }
+
+    let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+      destination
+    )}`;
+
+    if (userLocation?.latitude && userLocation?.longitude) {
+      mapsUrl += `&origin=${userLocation.latitude},${userLocation.longitude}`;
+    }
+
+    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+  };
+
   const filteredMedicines = medicines.filter(
     (medicine) =>
       (medicine.medicineName || "")
@@ -295,18 +342,43 @@ function PharmacyDetails() {
             </div>
           </div>
 
-          <div className="pharmacy-distance-box">
-            <span>📍</span>
+          <div className="pharmacy-hero-distance-card">
+            <div
+              className="pharmacy-distance-box clickable"
+              onClick={handleOpenDirections}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  handleOpenDirections();
+                }
+              }}
+              title="Click to open route and directions in Google Maps"
+            >
+              <span>📍</span>
 
-            <div>
-              <small>Distance from you</small>
+              <div>
+                <small>Distance from you</small>
 
-              <strong>
-                {distance !== null
-                  ? `${distance.toFixed(1)} km`
-                  : "Location unavailable"}
-              </strong>
+                <strong>
+                  {distance !== null
+                    ? `${distance.toFixed(1)} km`
+                    : userLocation
+                    ? "Distance unavailable"
+                    : "Location unavailable"}
+                </strong>
+              </div>
             </div>
+
+            <button
+              type="button"
+              className="pharmacy-distance-open-btn"
+              onClick={handleOpenDirections}
+              title="Open directions and distance from your location to this pharmacy"
+            >
+              <span>🧭</span>
+              <span>Open Distance in Maps ↗</span>
+            </button>
           </div>
         </section>
 
@@ -320,29 +392,43 @@ function PharmacyDetails() {
 
             <strong>
               {userLocation
-                ? "Distance calculated from your location"
+                ? distance !== null
+                  ? `Distance: ${distance.toFixed(1)} km from your location`
+                  : "Distance calculated from your location"
                 : "Location is not enabled"}
             </strong>
 
             <span>
               {userLocation
-                ? "You can see how far this pharmacy is from you."
-                : "Enable location to calculate your distance from this pharmacy."}
+                ? "Click below to view the route, travel time, and live navigation in Google Maps."
+                : "Enable your location or click to view directions to this pharmacy."}
             </span>
 
           </div>
 
-          {!userLocation && (
+          <div className="pharmacy-location-banner-actions">
+            {!userLocation && (
+              <button
+                type="button"
+                className="pharmacy-location-btn"
+                onClick={getUserLocation}
+                disabled={locationLoading}
+              >
+                {locationLoading
+                  ? "Getting Location..."
+                  : "Enable Location"}
+              </button>
+            )}
+
             <button
-              className="pharmacy-location-btn"
-              onClick={getUserLocation}
-              disabled={locationLoading}
+              type="button"
+              className="pharmacy-directions-banner-btn"
+              onClick={handleOpenDirections}
             >
-              {locationLoading
-                ? "Getting Location..."
-                : "Enable Location"}
+              <span>🗺️</span>
+              <span>Open Distance & Route ↗</span>
             </button>
-          )}
+          </div>
         </div>
 
         {locationError && (
@@ -378,6 +464,14 @@ function PharmacyDetails() {
               <strong>
                 {pharmacy.city || "Not available"}
               </strong>
+
+              <button
+                type="button"
+                className="pharmacy-info-directions-btn"
+                onClick={handleOpenDirections}
+              >
+                Open Distance & Map ↗
+              </button>
             </div>
           </div>
 
