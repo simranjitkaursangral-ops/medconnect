@@ -1,11 +1,17 @@
 import { useEffect, useState } from "react";
-import { createWorker } from "tesseract.js";
 import { Link } from "react-router-dom";
+
+import {
+  onAuthStateChanged
+} from "firebase/auth";
+
 import {
   collection,
   addDoc,
   getDocs,
-  serverTimestamp
+  serverTimestamp,
+  query,
+  where
 } from "firebase/firestore";
 
 import { auth, db } from "../../firebase/Firebase";
@@ -14,6 +20,7 @@ import {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_UPLOAD_PRESET
 } from "../../config/cloudinary";
+
 
 
 function PrescriptionUpload() {
@@ -41,61 +48,67 @@ function PrescriptionUpload() {
   const [submittedPharmacy, setSubmittedPharmacy] =
     useState("");
 
-  // AI-assisted prescription text recognition (runs in the browser).
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [scanning, setScanning] = useState(false);
-  const [scanProgress, setScanProgress] = useState(0);
-  const [scanResult, setScanResult] = useState(null);
-  const [scannedMedicines, setScannedMedicines] = useState([]);
-  const [scanMessage, setScanMessage] = useState("");
-
+  // Wait until Firebase confirms the authentication state.
   useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (user) => {
+        if (user) {
+          loadPharmacies();
+        } else {
+          setPharmacies([]);
+          setLoadingPharmacies(false);
+          setError("Please login before uploading a prescription.");
+        }
+      }
+    );
 
-  useEffect(() => {
-    loadPharmacies();
+    return () => unsubscribe();
   }, []);
 
+  // Load only approved pharmacies.
   const loadPharmacies = async () => {
     try {
       setLoadingPharmacies(true);
       setError("");
 
-      const snapshot = await getDocs(
-        collection(db, "pharmacies")
+      if (!auth.currentUser) {
+        setError("Please login before uploading a prescription.");
+        setPharmacies([]);
+        return;
+      }
+
+      const pharmaciesQuery = query(
+        collection(db, "pharmacies"),
+        where("status", "==", "approved")
       );
 
-      const pharmacyData = snapshot.docs
-        .map((item) => ({
-          id: item.id,
-          ...item.data()
-        }))
-        .filter(
-          (pharmacy) =>
-            String(pharmacy.status || "")
-              .trim()
-              .toLowerCase() === "approved"
-        );
+      const snapshot = await getDocs(pharmaciesQuery);
+
+      const pharmacyData = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data()
+      }));
 
       setPharmacies(pharmacyData);
+
+      if (pharmacyData.length === 0) {
+        setError("No approved pharmacies are currently available.");
+      }
     } catch (err) {
-      console.log(
-        "PHARMACY LOAD ERROR:",
-        err
-      );
+      console.error("PHARMACY LOAD ERROR:", err);
+
+      setPharmacies([]);
 
       setError(
-        err.message ||
-        "Unable to load approved pharmacies."
+        "Unable to load pharmacies. Please check your login and try again."
       );
     } finally {
       setLoadingPharmacies(false);
     }
   };
 
+  // Compress uploaded images.
   const compressImage = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -110,32 +123,22 @@ function PrescriptionUpload() {
           let width = image.width;
           let height = image.height;
 
-          if (
-            width > maxWidth ||
-            height > maxHeight
-          ) {
+          if (width > maxWidth || height > maxHeight) {
             const ratio = Math.min(
               maxWidth / width,
               maxHeight / height
             );
 
-            width = Math.round(
-              width * ratio
-            );
-
-            height = Math.round(
-              height * ratio
-            );
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
           }
 
-          const canvas =
-            document.createElement("canvas");
+          const canvas = document.createElement("canvas");
 
           canvas.width = width;
           canvas.height = height;
 
-          const context =
-            canvas.getContext("2d");
+          const context = canvas.getContext("2d");
 
           context.drawImage(
             image,
@@ -148,28 +151,20 @@ function PrescriptionUpload() {
           canvas.toBlob(
             (blob) => {
               if (!blob) {
-                reject(
-                  new Error(
-                    "Image compression failed."
-                  )
-                );
+                reject(new Error("Image compression failed."));
                 return;
               }
 
-              const compressedFile =
-                new File(
-                  [blob],
-                  "prescription.jpg",
-                  {
-                    type: "image/jpeg",
-                    lastModified:
-                      Date.now()
-                  }
-                );
-
-              resolve(
-                compressedFile
+              const compressedFile = new File(
+                [blob],
+                "prescription.jpg",
+                {
+                  type: "image/jpeg",
+                  lastModified: Date.now()
+                }
               );
+
+              resolve(compressedFile);
             },
             "image/jpeg",
             0.65
@@ -177,29 +172,21 @@ function PrescriptionUpload() {
         };
 
         image.onerror = () => {
-          reject(
-            new Error(
-              "Unable to process image."
-            )
-          );
+          reject(new Error("Unable to process image."));
         };
 
-        image.src =
-          event.target.result;
+        image.src = event.target.result;
       };
 
       reader.onerror = () => {
-        reject(
-          new Error(
-            "Unable to read image."
-          )
-        );
+        reject(new Error("Unable to read image."));
       };
 
       reader.readAsDataURL(file);
     });
   };
 
+  // Handle text fields.
   const handleChange = (e) => {
     const { name, value } = e.target;
 
@@ -211,9 +198,9 @@ function PrescriptionUpload() {
     setError("");
   };
 
+  // Handle prescription file selection.
   const handleFileChange = async (e) => {
-    const file =
-      e.target.files[0];
+    const file = e.target.files[0];
 
     if (!file) {
       return;
@@ -225,27 +212,14 @@ function PrescriptionUpload() {
       "application/pdf"
     ];
 
-    if (
-      !allowedTypes.includes(
-        file.type
-      )
-    ) {
-      setError(
-        "Only JPG, PNG and PDF files are allowed."
-      );
-
+    if (!allowedTypes.includes(file.type)) {
+      setError("Only JPG, PNG and PDF files are allowed.");
       e.target.value = "";
       return;
     }
 
-    if (
-      file.size >
-      5 * 1024 * 1024
-    ) {
-      setError(
-        "File size must be less than 5 MB."
-      );
-
+    if (file.size > 5 * 1024 * 1024) {
+      setError("File size must be less than 5 MB.");
       e.target.value = "";
       return;
     }
@@ -259,50 +233,30 @@ function PrescriptionUpload() {
         file.type === "image/jpeg" ||
         file.type === "image/png"
       ) {
-        optimizedFile =
-          await compressImage(file);
+        optimizedFile = await compressImage(file);
       }
 
       setFormData((previous) => ({
         ...previous,
         file: optimizedFile
       }));
-
-      setPreviewUrl(
-        optimizedFile.type.startsWith("image/")
-          ? URL.createObjectURL(optimizedFile)
-          : ""
-      );
-      setScanResult(null);
-      setScannedMedicines([]);
-      setScanProgress(0);
-      setScanMessage("");
-
     } catch (err) {
-      console.log(
-        "IMAGE PROCESSING ERROR:",
-        err
-      );
+      console.error("IMAGE PROCESSING ERROR:", err);
 
-      setError(
-        "Unable to process the selected image."
-      );
+      setError("Unable to process the selected image.");
 
       e.target.value = "";
     }
   };
 
+  // Upload file to Cloudinary.
   const uploadToCloudinary = async (file) => {
     const cloudinaryUrl =
       `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`;
 
-    const uploadData =
-      new FormData();
+    const uploadData = new FormData();
 
-    uploadData.append(
-      "file",
-      file
-    );
+    uploadData.append("file", file);
 
     uploadData.append(
       "upload_preset",
@@ -316,201 +270,44 @@ function PrescriptionUpload() {
 
     setUploadProgress(10);
 
-    const response =
-      await fetch(
-        cloudinaryUrl,
-        {
-          method: "POST",
-          body: uploadData
-        }
-      );
+    const response = await fetch(cloudinaryUrl, {
+      method: "POST",
+      body: uploadData
+    });
 
-    setUploadProgress(80);
-
-    const data =
-      await response.json();
+    const data = await response.json();
 
     if (!response.ok) {
-      console.log(
-        "CLOUDINARY ERROR:",
-        data
-      );
+      console.error("CLOUDINARY ERROR:", data);
 
       throw new Error(
-        data.error?.message ||
-        "Cloudinary upload failed."
+        data.error?.message || "Cloudinary upload failed."
       );
     }
 
-    setUploadProgress(90);
+    setUploadProgress(80);
 
     return data.secure_url;
   };
 
-  const normalizeMedicineText = (value) =>
-    String(value || "")
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  // Match OCR words only against medicine names/brands already in MedConnect.
-  // The scanner never invents a medicine name when no exact catalogue match exists.
-  const matchPrescriptionMedicines = async (recognizedText) => {
-    try {
-      const snapshot = await getDocs(collection(db, "medicines"));
-      const normalizedPrescription = ` ${normalizeMedicineText(recognizedText)} `;
-      const matches = new Map();
-
-      snapshot.docs.forEach((medicineDoc) => {
-        const medicine = medicineDoc.data();
-        const medicineName = String(medicine.medicineName || "").trim();
-        const brand = String(medicine.brand || "").trim();
-        const terms = [medicineName, brand].filter(Boolean);
-
-        const matchedTerm = terms.find((term) => {
-          const normalizedTerm = normalizeMedicineText(term);
-          if (normalizedTerm.length < 3) return false;
-          return normalizedPrescription.includes(` ${normalizedTerm} `);
-        });
-
-        if (!matchedTerm || !medicineName) return;
-
-        const uniqueKey = normalizeMedicineText(
-          `${medicineName} ${medicine.dosage || ""} ${medicine.dosageForm || ""}`
-        );
-
-        if (!matches.has(uniqueKey)) {
-          matches.set(uniqueKey, {
-            medicineId: medicineDoc.id,
-            medicineName,
-            brand,
-            dosage: String(medicine.dosage || ""),
-            dosageForm: String(medicine.dosageForm || ""),
-            matchedTerm
-          });
-        }
-      });
-
-      return Array.from(matches.values());
-    } catch (matchError) {
-      console.warn("MEDICINE CATALOG MATCH ERROR:", matchError);
-      return [];
-    }
-  };
-
-  const handleScanPrescription = async () => {
-    if (!formData.file) {
-      setScanMessage("Upload a prescription image before scanning.");
-      return;
-    }
-
-    if (!formData.file.type.startsWith("image/")) {
-      setScanMessage(
-        "Automatic text scanning currently supports JPG and PNG images. You can still upload a PDF and enter the medicine name manually."
-      );
-      return;
-    }
-
-    let worker;
-
-    try {
-      setScanning(true);
-      setScanProgress(0);
-      setScanMessage("Preparing the prescription scanner...");
-      setScanResult(null);
-      setScannedMedicines([]);
-      setError("");
-
-      worker = await createWorker("eng", 1, {
-        logger: (message) => {
-          if (message.status === "recognizing text") {
-            setScanProgress(Math.round((message.progress || 0) * 100));
-            setScanMessage("Reading prescription text...");
-          }
-        }
-      });
-
-      const recognition = await worker.recognize(formData.file);
-      const recognizedText = String(recognition.data.text || "").trim();
-      const confidence = Math.round(recognition.data.confidence || 0);
-
-      if (!recognizedText) {
-        setScanMessage(
-          "No readable text was found. Try a brighter, clearer, straight photograph or enter the medicine name manually."
-        );
-        return;
-      }
-
-      const matches = await matchPrescriptionMedicines(recognizedText);
-
-      setScanResult({
-        text: recognizedText,
-        confidence
-      });
-      setScannedMedicines(matches);
-      setScanProgress(100);
-
-      if (matches.length > 0) {
-        const detectedNames = matches
-          .map((medicine) => medicine.medicineName)
-          .join(", ");
-
-        setFormData((previous) => ({
-          ...previous,
-          medicineName: detectedNames
-        }));
-
-        setScanMessage(
-          `${matches.length} possible catalogue match${matches.length === 1 ? "" : "es"} found. Please verify every medicine name against the original prescription.`
-        );
-      } else {
-        setScanMessage(
-          "Text was read, but no exact medicine-name match was found in the MedConnect catalogue. Review the extracted text and enter the prescribed medicine name manually."
-        );
-      }
-    } catch (scanError) {
-      console.error("PRESCRIPTION SCAN ERROR:", scanError);
-      setScanMessage(
-        "The scanner could not process this image. Please try a clearer JPG/PNG image or enter the medicine name manually."
-      );
-    } finally {
-      if (worker) {
-        try {
-          await worker.terminate();
-        } catch (terminateError) {
-          console.warn("OCR WORKER CLEANUP ERROR:", terminateError);
-        }
-      }
-      setScanning(false);
-    }
-  };
-
+  // Submit prescription.
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const user =
-      auth.currentUser;
+    const user = auth.currentUser;
 
     if (!user) {
-      setError(
-        "Please login before uploading a prescription."
-      );
+      setError("Please login before uploading a prescription.");
       return;
     }
 
     if (!formData.pharmacyId) {
-      setError(
-        "Please select a pharmacy."
-      );
+      setError("Please select a pharmacy.");
       return;
     }
 
     if (!formData.file) {
-      setError(
-        "Please select a prescription file."
-      );
+      setError("Please select a prescription file.");
       return;
     }
 
@@ -519,110 +316,70 @@ function PrescriptionUpload() {
       setError("");
       setUploadProgress(0);
 
-      const selectedPharmacy =
-        pharmacies.find(
-          (pharmacy) =>
-            pharmacy.id ===
-            formData.pharmacyId
-        );
+      const selectedPharmacy = pharmacies.find(
+        (pharmacy) => pharmacy.id === formData.pharmacyId
+      );
 
       if (!selectedPharmacy) {
-        setError(
-          "Selected pharmacy is not available."
-        );
+        setError("Selected pharmacy is not available.");
         return;
       }
 
-      if (
-        String(
-          selectedPharmacy.status || ""
-        )
-          .trim()
-          .toLowerCase() !==
-        "approved"
-      ) {
+      if (selectedPharmacy.status !== "approved") {
         setError(
           "You can only send prescriptions to approved pharmacies."
         );
         return;
       }
 
-      const file =
-        formData.file;
+      // Upload prescription file.
+      const file = formData.file;
 
-      const fileUrl =
-        await uploadToCloudinary(
-          file
-        );
+      const fileUrl = await uploadToCloudinary(file);
 
-      setUploadProgress(95);
+      setUploadProgress(90);
 
+      // Save prescription details in Firestore.
       await addDoc(
-        collection(
-          db,
-          "prescriptions"
-        ),
+        collection(db, "prescriptions"),
         {
-          userId:
-            user.uid,
+          userId: user.uid,
 
           userName:
-            localStorage.getItem(
-              "userName"
-            ) || "User",
+            localStorage.getItem("userName") || "User",
 
           userEmail:
-            localStorage.getItem(
-              "userEmail"
-            ) ||
+            localStorage.getItem("userEmail") ||
             user.email ||
             "",
 
-          pharmacyId:
-            selectedPharmacy.id,
+          pharmacyId: selectedPharmacy.id,
 
           pharmacyName:
             selectedPharmacy.name ||
+            selectedPharmacy.pharmacyName ||
             "",
 
           pharmacyAddress:
             selectedPharmacy.address ||
+            selectedPharmacy.pharmacyAddress ||
             "",
 
-          medicineName:
-            formData.medicineName.trim(),
+          medicineName: formData.medicineName.trim(),
 
-          notes:
-            formData.notes.trim(),
+          notes: formData.notes.trim(),
 
-          fileName:
-            file.name,
+          fileName: file.name,
 
-          fileType:
-            file.type,
+          fileType: file.type,
 
-          fileUrl,
-
-          // OCR output is retained as structured, user-reviewable catalogue matches.
-          // Raw OCR text stays in the browser and is not saved to Firestore.
-          extractedMedicines: scannedMedicines.map((medicine) => ({
-            medicineId: medicine.medicineId,
-            medicineName: medicine.medicineName,
-            brand: medicine.brand,
-            dosage: medicine.dosage,
-            dosageForm: medicine.dosageForm,
-            matchedTerm: medicine.matchedTerm
-          })),
-          ocrConfidence: scanResult ? scanResult.confidence : null,
-          ocrEngine: scanResult ? "Tesseract.js" : "",
+          fileUrl: fileUrl,
 
           status: "Pending",
 
-          createdAt:
-            serverTimestamp(),
+          createdAt: serverTimestamp(),
 
-          updatedAt:
-            serverTimestamp()
+          updatedAt: serverTimestamp()
         }
       );
 
@@ -630,6 +387,7 @@ function PrescriptionUpload() {
 
       setSubmittedPharmacy(
         selectedPharmacy.name ||
+        selectedPharmacy.pharmacyName ||
         "the selected pharmacy"
       );
 
@@ -639,16 +397,10 @@ function PrescriptionUpload() {
         notes: "",
         file: null
       });
-      setPreviewUrl("");
-      setScanResult(null);
-      setScannedMedicines([]);
-      setScanProgress(0);
-      setScanMessage("");
 
-      const fileInput =
-        document.getElementById(
-          "prescription-file"
-        );
+      const fileInput = document.getElementById(
+        "prescription-file"
+      );
 
       if (fileInput) {
         fileInput.value = "";
@@ -657,20 +409,17 @@ function PrescriptionUpload() {
       setSuccess(true);
 
     } catch (err) {
-      console.log(
-        "PRESCRIPTION ERROR:",
-        err
-      );
+      console.error("PRESCRIPTION ERROR:", err);
 
       setError(
-        err.message ||
-        "Unable to upload prescription."
+        err.message || "Unable to upload prescription."
       );
     } finally {
       setLoading(false);
     }
   };
 
+  // Success screen.
   if (success) {
     return (
       <main className="prescription-page">
@@ -687,19 +436,13 @@ function PrescriptionUpload() {
 
           <h1>
             Prescription sent
-            <span>
-              {" "}successfully.
-            </span>
+            <span> successfully.</span>
           </h1>
 
           <p>
-            Your prescription has been
-            sent to{" "}
-            <strong>
-              {submittedPharmacy}
-            </strong>
-            . The pharmacist can now
-            review your prescription.
+            Your prescription has been sent to{" "}
+            <strong>{submittedPharmacy}</strong>.
+            The pharmacist can now review your prescription.
           </p>
 
           <div className="prescription-success-actions">
@@ -736,6 +479,7 @@ function PrescriptionUpload() {
 
       <section className="prescription-container">
 
+        {/* Left information section */}
         <div className="prescription-info">
 
           <span className="section-badge">
@@ -744,16 +488,12 @@ function PrescriptionUpload() {
 
           <h1>
             Send your prescription
-            <span>
-              {" "}to a pharmacy.
-            </span>
+            <span> to a pharmacy.</span>
           </h1>
 
           <p>
-            Select an approved pharmacy,
-            upload your prescription, scan printed medicine details,
-            confirm the extracted names and let the pharmacist review
-            your request.
+            Select an approved pharmacy, upload your prescription
+            and let the pharmacist review your request.
           </p>
 
           <div className="prescription-benefits">
@@ -766,11 +506,6 @@ function PrescriptionUpload() {
             <div>
               <span>✓</span>
               Upload JPG, PNG or PDF
-            </div>
-
-            <div>
-              <span>✦</span>
-              Scan printed text and match catalogue medicines
             </div>
 
             <div>
@@ -787,6 +522,7 @@ function PrescriptionUpload() {
 
         </div>
 
+        {/* Upload form */}
         <div className="prescription-card">
 
           <div className="prescription-card-header">
@@ -810,6 +546,7 @@ function PrescriptionUpload() {
             onSubmit={handleSubmit}
           >
 
+            {/* Pharmacy dropdown */}
             <div className="form-group">
 
               <label>
@@ -818,14 +555,9 @@ function PrescriptionUpload() {
 
               <select
                 name="pharmacyId"
-                value={
-                  formData.pharmacyId
-                }
+                value={formData.pharmacyId}
                 onChange={handleChange}
-                disabled={
-                  loadingPharmacies ||
-                  loading
-                }
+                disabled={loadingPharmacies || loading}
               >
 
                 <option value="">
@@ -836,46 +568,45 @@ function PrescriptionUpload() {
                     : "Select a pharmacy"}
                 </option>
 
-                {pharmacies.map(
-                  (pharmacy) => (
-                    <option
-                      key={pharmacy.id}
-                      value={pharmacy.id}
-                    >
-                      {pharmacy.name}
-                      {pharmacy.city
-                        ? ` - ${pharmacy.city}`
-                        : ""}
-                    </option>
-                  )
-                )}
+                {pharmacies.map((pharmacy) => (
+                  <option
+                    key={pharmacy.id}
+                    value={pharmacy.id}
+                  >
+                    {pharmacy.name ||
+                      pharmacy.pharmacyName ||
+                      "Pharmacy"}
+
+                    {pharmacy.city
+                      ? ` - ${pharmacy.city}`
+                      : ""}
+                  </option>
+                ))}
 
               </select>
 
             </div>
 
+            {/* Medicine name */}
             <div className="form-group">
 
               <label>
                 Medicine Name
-                <span>
-                  Optional
-                </span>
+                <span>Optional</span>
               </label>
 
               <input
                 type="text"
                 name="medicineName"
                 placeholder="Enter medicine name"
-                value={
-                  formData.medicineName
-                }
+                value={formData.medicineName}
                 onChange={handleChange}
                 disabled={loading}
               />
 
             </div>
 
+            {/* Prescription file */}
             <div className="form-group">
 
               <label>
@@ -886,139 +617,57 @@ function PrescriptionUpload() {
                 id="prescription-file"
                 type="file"
                 accept=".jpg,.jpeg,.png,.pdf"
-                onChange={
-                  handleFileChange
-                }
+                onChange={handleFileChange}
                 disabled={loading}
               />
 
               <small>
-                JPG, PNG or PDF • Maximum
-                5 MB • Images are optimized
-                automatically
+                JPG, PNG or PDF • Maximum 5 MB
+                • Images are optimized automatically
               </small>
 
             </div>
 
+            {/* Selected file information */}
             {formData.file && (
               <div className="selected-file">
+
                 <strong>
                   Selected:
                 </strong>{" "}
+
                 {formData.file.name}
-                {" "}
-                (
+
+                {" "}(
                 {(
                   formData.file.size /
                   (1024 * 1024)
                 ).toFixed(2)}
                 {" "}MB)
+
               </div>
             )}
 
-            {formData.file && (
-              <section className="rx-ai-scanner" aria-label="AI-assisted prescription scanner">
-                <div className="rx-ai-scanner-heading">
-                  <div className="rx-ai-scanner-icon">✦</div>
-                  <div>
-                    <span className="rx-ai-eyebrow">SMART PRESCRIPTION SCAN</span>
-                    <h3>Read prescription with AI assistance</h3>
-                    <p>Extract printed text and match medicine names against the MedConnect catalogue.</p>
-                  </div>
-                </div>
-
-                {previewUrl && (
-                  <div className="rx-ai-preview-wrap">
-                    <img src={previewUrl} alt="Selected prescription preview" className="rx-ai-preview-image" />
-                  </div>
-                )}
-
-                <div className="rx-ai-scanner-actions">
-                  <button
-                    type="button"
-                    className="rx-ai-scan-button"
-                    onClick={handleScanPrescription}
-                    disabled={scanning || loading || !formData.file.type.startsWith("image/")}
-                  >
-                    {scanning ? `Scanning prescription ${scanProgress}%` : "✦ Scan & identify medicines"}
-                  </button>
-                  {!formData.file.type.startsWith("image/") && (
-                    <span className="rx-ai-inline-note">PDF upload is supported; automatic image scanning is not available for PDFs in this version.</span>
-                  )}
-                </div>
-
-                {scanning && (
-                  <div className="rx-ai-progress" role="progressbar" aria-valuenow={scanProgress} aria-valuemin="0" aria-valuemax="100">
-                    <div className="rx-ai-progress-track">
-                      <div className="rx-ai-progress-fill" style={{ width: `${scanProgress}%` }}></div>
-                    </div>
-                  </div>
-                )}
-
-                {scanMessage && (
-                  <div className={`rx-ai-scan-message ${scanResult ? "success" : ""}`}>
-                    {scanMessage}
-                  </div>
-                )}
-
-                {scanResult && (
-                  <div className="rx-ai-results">
-                    <div className="rx-ai-results-top">
-                      <strong>Scan results</strong>
-                      <span>OCR text confidence: {scanResult.confidence}%</span>
-                    </div>
-
-                    {scannedMedicines.length > 0 ? (
-                      <div className="rx-ai-detected-list">
-                        {scannedMedicines.map((medicine) => (
-                          <div className="rx-ai-detected-item" key={medicine.medicineId}>
-                            <span className="rx-ai-detected-check">✓</span>
-                            <div>
-                              <strong>{medicine.medicineName}</strong>
-                              {medicine.dosage && <small>{medicine.dosage}{medicine.dosageForm ? ` · ${medicine.dosageForm}` : ""}</small>}
-                              {medicine.brand && <small>Brand: {medicine.brand}</small>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="rx-ai-no-match">No exact catalogue matches were found. Please enter the medicine name yourself.</p>
-                    )}
-
-                    <details className="rx-ai-ocr-details">
-                      <summary>Review extracted prescription text</summary>
-                      <pre>{scanResult.text}</pre>
-                    </details>
-                    <p className="rx-ai-review-warning">Please compare the extracted names with the original prescription. OCR can misread handwriting, abbreviations, strengths and similar medicine names.</p>
-                  </div>
-                )}
-
-                <p className="rx-ai-privacy-note">Text recognition runs in your browser. Your prescription file is uploaded to the selected pharmacy only when you submit this form.</p>
-              </section>
-            )}
-
+            {/* Notes */}
             <div className="form-group">
 
               <label>
                 Notes
-                <span>
-                  Optional
-                </span>
+                <span>Optional</span>
               </label>
 
               <textarea
                 name="notes"
                 rows="4"
                 placeholder="Add any additional information..."
-                value={
-                  formData.notes
-                }
+                value={formData.notes}
                 onChange={handleChange}
                 disabled={loading}
               />
 
             </div>
 
+            {/* Upload progress */}
             {loading && (
               <div className="upload-progress-box">
 
@@ -1046,19 +695,20 @@ function PrescriptionUpload() {
                 </div>
 
                 <small>
-                  Please keep this page open
-                  until the upload finishes.
+                  Please keep this page open until the upload finishes.
                 </small>
 
               </div>
             )}
 
+            {/* Error message */}
             {error && (
               <div className="form-error">
                 {error}
               </div>
             )}
 
+            {/* Submit button */}
             <button
               type="submit"
               className="prescription-submit"
