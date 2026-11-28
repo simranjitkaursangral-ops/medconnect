@@ -13,14 +13,27 @@ import {
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { auth, db } from "../../firebase/Firebase";
 
+const normalizeMedicineName = (name) =>
+  String(name || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
 function Prescriptions() {
   const [prescriptions, setPrescriptions] = useState([]);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState("");
   const [error, setError] = useState("");
+  const [statusNotice, setStatusNotice] = useState(null);
   const [openingId, setOpeningId] = useState("");
   const [viewError, setViewError] = useState("");
+  const [availabilitySelections, setAvailabilitySelections] =
+    useState({});
+  const [availabilitySubmittingId, setAvailabilitySubmittingId] =
+    useState("");
+  const [availabilityFeedback, setAvailabilityFeedback] =
+    useState(null);
 
   const verifyPharmacy = async () => {
     const uid = localStorage.getItem("uid");
@@ -227,13 +240,17 @@ function Prescriptions() {
       return;
     }
 
-    if (currentPrescription.status === status) {
+    if (
+      currentPrescription.status === status &&
+      status !== "Completed"
+    ) {
       return;
     }
 
     try {
       setUpdatingId(id);
       setError("");
+      setStatusNotice(null);
 
       const pharmacy = await verifyPharmacy();
 
@@ -280,6 +297,86 @@ function Prescriptions() {
             : item
         )
       );
+
+      if (status === "Completed") {
+        try {
+          const medicineName = normalizeMedicineName(
+            prescriptionData.medicineName
+          );
+          let matchingRequests = [];
+
+          if (medicineName && prescriptionData.userId) {
+            const requestSnapshot = await getDocs(
+              query(
+                collection(db, "medicineRequests"),
+                where("userId", "==", prescriptionData.userId)
+              )
+            );
+            matchingRequests = requestSnapshot.docs.filter((item) => {
+              const request = item.data();
+
+              return normalizeMedicineName(request.medicineName) ===
+                medicineName;
+            });
+          }
+
+          const openMatchingRequests = matchingRequests.filter((item) => {
+            const request = item.data();
+
+            return (
+              request.status !== "Completed" &&
+              request.status !== "Rejected"
+            );
+          });
+
+          if (openMatchingRequests.length === 1) {
+            await updateDoc(
+              doc(db, "medicineRequests", openMatchingRequests[0].id),
+              {
+                status: "Completed",
+                updatedAt: serverTimestamp()
+              }
+            );
+            setStatusNotice({
+              type: "success",
+              message:
+                "Prescription completed and the matching medicine request was updated."
+            });
+          } else if (openMatchingRequests.length > 1) {
+            setStatusNotice({
+              type: "warning",
+              message:
+                "Prescription completed, but multiple open medicine requests match. Their statuses were left unchanged."
+            });
+          } else if (
+            matchingRequests.some(
+              (item) => item.data().status === "Completed"
+            )
+          ) {
+            setStatusNotice({
+              type: "success",
+              message:
+                "Prescription completed and its matching medicine request is already completed."
+            });
+          } else {
+            setStatusNotice({
+              type: "warning",
+              message:
+                "Prescription completed, but no matching open medicine request was found."
+            });
+          }
+        } catch (syncError) {
+          console.error(
+            "MEDICINE REQUEST STATUS SYNC ERROR:",
+            syncError
+          );
+          setStatusNotice({
+            type: "warning",
+            message:
+              "Prescription completed, but the matching medicine request could not be updated. Please check the pharmacy's Firestore permissions."
+          });
+        }
+      }
     } catch (err) {
       console.error("UPDATE PRESCRIPTION ERROR:", err);
 
@@ -289,6 +386,111 @@ function Prescriptions() {
       );
     } finally {
       setUpdatingId("");
+    }
+  };
+
+  const handleAvailabilitySelection = (id, availability) => {
+    setAvailabilitySelections((current) => ({
+      ...current,
+      [id]: availability
+    }));
+
+    setAvailabilityFeedback((current) =>
+      current?.id === id ? null : current
+    );
+  };
+
+  const handleSubmitAvailabilityResponse = async (id) => {
+    const currentPrescription = prescriptions.find(
+      (item) => item.id === id
+    );
+
+    if (!currentPrescription || currentPrescription.status !== "Completed") {
+      setAvailabilityFeedback({
+        id,
+        type: "error",
+        message:
+          "Complete the prescription review before submitting availability."
+      });
+      return;
+    }
+
+    const availability =
+      availabilitySelections[id] ||
+      currentPrescription.availabilityResponse;
+    const allowedResponses = ["Available", "Not Available"];
+
+    if (!allowedResponses.includes(availability)) {
+      setAvailabilityFeedback({
+        id,
+        type: "error",
+        message: "Select Available or Not Available before submitting."
+      });
+      return;
+    }
+
+    try {
+      setAvailabilitySubmittingId(id);
+      setAvailabilityFeedback(null);
+
+      const pharmacy = await verifyPharmacy();
+      const prescriptionRef = doc(db, "prescriptions", id);
+      const prescriptionSnapshot = await getDoc(prescriptionRef);
+
+      if (!prescriptionSnapshot.exists()) {
+        throw new Error("Prescription not found.");
+      }
+
+      const prescriptionData = prescriptionSnapshot.data();
+
+      if (prescriptionData.pharmacyId !== pharmacy.pharmacyId) {
+        throw new Error(
+          "You are not authorized to update this prescription."
+        );
+      }
+
+      if (prescriptionData.status !== "Completed") {
+        throw new Error(
+          "Complete the prescription review before submitting availability."
+        );
+      }
+
+      await updateDoc(prescriptionRef, {
+        availabilityResponse: availability,
+        availabilityRespondedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      setPrescriptions((current) =>
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                availabilityResponse: availability
+              }
+            : item
+        )
+      );
+      setAvailabilitySelections((current) => ({
+        ...current,
+        [id]: availability
+      }));
+      setAvailabilityFeedback({
+        id,
+        type: "success",
+        message: "Availability response submitted."
+      });
+    } catch (err) {
+      console.error("SUBMIT AVAILABILITY RESPONSE ERROR:", err);
+      setAvailabilityFeedback({
+        id,
+        type: "error",
+        message:
+          err.message ||
+          "Unable to submit the availability response. Please try again."
+      });
+    } finally {
+      setAvailabilitySubmittingId("");
     }
   };
 
@@ -482,6 +684,15 @@ function Prescriptions() {
             </div>
           )}
 
+          {statusNotice && (
+            <div
+              className={`prescriptions-sync-notice ${statusNotice.type}`}
+              role="status"
+            >
+              {statusNotice.message}
+            </div>
+          )}
+
           <div className="prescriptions-filters">
             {[
               "All",
@@ -573,6 +784,12 @@ function Prescriptions() {
 
                 const isUpdating =
                   updatingId === prescription.id;
+                const selectedAvailability =
+                  availabilitySelections[prescription.id] ||
+                  prescription.availabilityResponse ||
+                  "";
+                const isSubmittingAvailability =
+                  availabilitySubmittingId === prescription.id;
 
                 return (
                   <div
@@ -731,7 +948,9 @@ function Prescriptions() {
                               "Pending"
                             )
                           }
-                          disabled={isUpdating}
+                          disabled={
+                            isUpdating || isSubmittingAvailability
+                          }
                         >
                           Pending
                         </button>
@@ -749,7 +968,9 @@ function Prescriptions() {
                               "Reviewed"
                             )
                           }
-                          disabled={isUpdating}
+                          disabled={
+                            isUpdating || isSubmittingAvailability
+                          }
                         >
                           Reviewed
                         </button>
@@ -767,7 +988,9 @@ function Prescriptions() {
                               "Completed"
                             )
                           }
-                          disabled={isUpdating}
+                          disabled={
+                            isUpdating || isSubmittingAvailability
+                          }
                         >
                           {isUpdating &&
                           status !== "Completed"
@@ -777,6 +1000,82 @@ function Prescriptions() {
 
                       </div>
                     </div>
+
+                    {status === "Completed" && (
+                      <section className="prescription-availability-section">
+                        <div className="prescription-availability-heading">
+                          <span>Medicine Availability</span>
+                          <p>
+                            Select the availability response to send to the
+                            customer.
+                          </p>
+                        </div>
+
+                        <div
+                          className="prescription-availability-options"
+                          role="radiogroup"
+                          aria-label={`Medicine availability for ${
+                            prescription.medicineName || "prescription"
+                          }`}
+                        >
+                          {["Available", "Not Available"].map((option) => (
+                            <label
+                              className={
+                                selectedAvailability === option
+                                  ? "prescription-availability-option selected"
+                                  : "prescription-availability-option"
+                              }
+                              key={option}
+                            >
+                              <input
+                                type="radio"
+                                name={`availability-${prescription.id}`}
+                                value={option}
+                                checked={selectedAvailability === option}
+                                onChange={() =>
+                                  handleAvailabilitySelection(
+                                    prescription.id,
+                                    option
+                                  )
+                                }
+                              />
+                              {option}
+                            </label>
+                          ))}
+
+                          <button
+                            type="button"
+                            className="prescription-availability-submit"
+                            onClick={() =>
+                              handleSubmitAvailabilityResponse(
+                                prescription.id
+                              )
+                            }
+                            disabled={
+                              !selectedAvailability ||
+                              isSubmittingAvailability
+                            }
+                          >
+                            {isSubmittingAvailability
+                              ? "Submitting..."
+                              : "Submit Response"}
+                          </button>
+                        </div>
+
+                        {availabilityFeedback?.id === prescription.id && (
+                          <p
+                            className={`prescription-availability-feedback ${availabilityFeedback.type}`}
+                            role={
+                              availabilityFeedback.type === "error"
+                                ? "alert"
+                                : "status"
+                            }
+                          >
+                            {availabilityFeedback.message}
+                          </p>
+                        )}
+                      </section>
+                    )}
 
                   </div>
                 );

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   collection,
-  getDocs,
+  onSnapshot,
   query,
   where
 } from "firebase/firestore";
@@ -9,6 +9,9 @@ import { db } from "../../firebase/Firebase";
 import { Link } from "react-router-dom";
 
 function MyPrescriptions() {
+  const [userId] = useState(() =>
+    localStorage.getItem("uid")
+  );
   const [prescriptions, setPrescriptions] =
     useState([]);
 
@@ -16,83 +19,52 @@ function MyPrescriptions() {
     useState("All");
 
   const [loading, setLoading] =
-    useState(true);
+    useState(Boolean(userId));
 
   const [error, setError] =
-    useState("");
+    useState(
+      userId
+        ? ""
+        : "Please login to view your prescriptions."
+    );
 
   useEffect(() => {
-    const loadPrescriptions =
-      async () => {
-        try {
-          setLoading(true);
-          setError("");
+    if (!userId) {
+      return;
+    }
 
-          const userId =
-            localStorage.getItem("uid");
+    const prescriptionQuery = query(
+      collection(db, "prescriptions"),
+      where("userId", "==", userId)
+    );
 
-          if (!userId) {
-            setError(
-              "Please login to view your prescriptions."
-            );
-            return;
-          }
+    const unsubscribe = onSnapshot(
+      prescriptionQuery,
+      (snapshot) => {
+        const data = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data()
+        }));
 
-          const prescriptionQuery =
-            query(
-              collection(
-                db,
-                "prescriptions"
-              ),
-              where(
-                "userId",
-                "==",
-                userId
-              )
-            );
+        data.sort((a, b) => {
+          const dateA = a.createdAt?.toDate?.() || new Date(0);
+          const dateB = b.createdAt?.toDate?.() || new Date(0);
 
-          const snapshot =
-            await getDocs(
-              prescriptionQuery
-            );
+          return dateB - dateA;
+        });
 
-          const data =
-            snapshot.docs.map(
-              (item) => ({
-                id: item.id,
-                ...item.data()
-              })
-            );
+        setPrescriptions(data);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("PRESCRIPTION LOAD ERROR:", err);
+        setError("Unable to load your prescriptions.");
+        setLoading(false);
+      }
+    );
 
-          data.sort((a, b) => {
-            const dateA =
-              a.createdAt?.toDate?.() ||
-              new Date(0);
-
-            const dateB =
-              b.createdAt?.toDate?.() ||
-              new Date(0);
-
-            return dateB - dateA;
-          });
-
-          setPrescriptions(data);
-        } catch (err) {
-          console.error(
-            "PRESCRIPTION LOAD ERROR:",
-            err
-          );
-
-          setError(
-            "Unable to load your prescriptions."
-          );
-        } finally {
-          setLoading(false);
-        }
-      };
-
-    loadPrescriptions();
-  }, []);
+    return () => unsubscribe();
+  }, [userId]);
 
   const filteredPrescriptions =
     filter === "All"
@@ -680,6 +652,23 @@ function MyPrescriptions() {
                         </div>
 
                       </div>
+
+                      {["Available", "Not Available"].includes(
+                        prescription.availabilityResponse
+                      ) && (
+                        <div
+                          className={`customer-prescription-availability ${
+                            prescription.availabilityResponse === "Available"
+                              ? "available"
+                              : "unavailable"
+                          }`}
+                        >
+                          <span>Medicine Availability</span>
+                          <strong>
+                            {prescription.availabilityResponse}
+                          </strong>
+                        </div>
+                      )}
 
                       {prescription.notes && (
 

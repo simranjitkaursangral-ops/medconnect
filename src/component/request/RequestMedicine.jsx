@@ -20,8 +20,9 @@ function RequestMedicine() {
 
   const [searchParams] = useSearchParams();
 
-  const medicineFromUrl =
-    searchParams.get("medicineName") || "";
+  const medicineFromUrl =searchParams.get("medicine") || "";
+  const dosageFromUrl =searchParams.get("dosage") || "";
+  const amount =searchParams.get("price") || "";
 
   const pharmacyIdFromUrl =
     searchParams.get("pharmacyId") || "";
@@ -33,11 +34,16 @@ function RequestMedicine() {
   const [medicineName, setMedicineName] =
     useState(medicineFromUrl);
 
+
+    useEffect(()=>{
+      console.log("pharmacyIdFromUrl", medicineName);
+    })
+
   const [quantity, setQuantity] =
     useState(1);
 
   const [dosage, setDosage] =
-    useState("");
+    useState(dosageFromUrl);
 
   const [location, setLocation] =
     useState("");
@@ -189,9 +195,49 @@ function RequestMedicine() {
 
   // SUBMIT MEDICINE REQUEST
 
+  const pay=(e)=>{
+    e.preventDefault();
+
+    console.log("Hlo");
+    
+
+   
+var options = {
+    "key": "rzp_test_U5Uj7xNSXBMN72", // Enter the Key ID generated from the Dashboard
+    "amount": quantity*amount * 100, // Amount is in currency subunits.
+    "currency": "INR",
+    "name": "Med Connect", //your business name
+    "description": "",
+    // "image": "https://example.com/your_logo",
+    // "order_id": "order_9A33XWu170gUtm", //This is a sample Order ID. Pass the `id` obtained in the response of Step 1
+    "handler": function (response){
+        handleSubmit()
+    },
+    "prefill": { //We recommend using the prefill parameter to auto-fill customer's contact information, especially their phone number
+        "name": "<name>", //your customer's name
+        "email": "<email>", 
+        "contact": "<phone>"  //Provide the customer's phone number for better conversion rates 
+    },
+    "notes": {
+        "address": "Razorpay Corporate Office"
+    },
+    "theme": {
+        "color": "#3bdb60"
+    }
+};
+var rzp1 = new Razorpay(options);
+
+    rzp1.open();
+   
+
+
+  }
+
   const handleSubmit = async (e) => {
 
-    e.preventDefault();
+    console.log("this");
+    
+
 
     setError("");
     setSuccess(false);
@@ -664,7 +710,7 @@ function RequestMedicine() {
             )}
 
 
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={pay}>
 
 
               <div className="request-form-section">

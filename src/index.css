@@ -10787,6 +10787,23 @@
   color: #ffffff;
 }
 
+.prescriptions-sync-notice {
+  margin-top: 16px;
+  padding: 12px 15px;
+  border: 1px solid #b7dfca;
+  border-radius: 9px;
+  background: #f0faf4;
+  color: #176b48;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.prescriptions-sync-notice.warning {
+  border-color: #f0d7a7;
+  background: #fff9eb;
+  color: #805b16;
+}
+
 /* =====================================
    FILTER BUTTONS
 ===================================== */
@@ -11131,6 +11148,101 @@
 .status-btn.completed.active {
   border-color: #9ed9b7;
   background: #e6f7ed;
+}
+
+.prescription-availability-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 20px;
+  padding-top: 17px;
+  margin-top: 17px;
+  border-top: 1px solid #edf1ee;
+}
+
+.prescription-availability-heading > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #344a3d;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.prescription-availability-heading p {
+  margin: 0;
+  color: #89958d;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.prescription-availability-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.prescription-availability-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 11px;
+  border: 1px solid #e0e8e2;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #526258;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.prescription-availability-option.selected {
+  border-color: #9ed9b7;
+  background: #e6f7ed;
+  color: #087b55;
+}
+
+.prescription-availability-option input {
+  margin: 0;
+  accent-color: #087b55;
+}
+
+.prescription-availability-submit {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid #087b55;
+  border-radius: 7px;
+  background: #087b55;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.prescription-availability-submit:hover:not(:disabled) {
+  background: #066744;
+}
+
+.prescription-availability-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.prescription-availability-feedback {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.prescription-availability-feedback.success {
+  color: #087b55;
+}
+
+.prescription-availability-feedback.error {
+  color: #a52b22;
 }
 
 /* =====================================
@@ -12369,6 +12481,38 @@
 
 .prescription-timeline-line.active {
   background: #168568;
+}
+
+.customer-prescription-availability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 15px;
+  margin-bottom: 18px;
+  border: 1px solid #dce8df;
+  border-radius: 9px;
+}
+
+.customer-prescription-availability span {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.customer-prescription-availability strong {
+  font-size: 12px;
+}
+
+.customer-prescription-availability.available {
+  border-color: #bce5ca;
+  background: #edfaf1;
+  color: #21824b;
+}
+
+.customer-prescription-availability.unavailable {
+  border-color: #f1caca;
+  background: #fff1f1;
+  color: #c04444;
 }
 
 /* =====================================

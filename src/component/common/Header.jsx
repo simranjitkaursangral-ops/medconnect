@@ -327,18 +327,11 @@ function Header() {
           }
         >
 
-          {/* Shared navigation links are available to every account type. */}
-          <Link to="/" onClick={closeMenu}>
-            Home
-          </Link>
-
-          <Link
-            to="/ai-assistant"
-            onClick={closeMenu}
-            className="header-ai-link"
-          >
-            AI Assistant
-          </Link>
+          {userType !== "admin" && userType !== "pharmacy" && (
+            <Link to="/" onClick={closeMenu}>
+              Home
+            </Link>
+          )}
 
           {userType === "admin" ? (
 
@@ -416,8 +409,23 @@ function Header() {
                 Prescription
               </Link>
 
-                  {isLogin && userType === "user" && (
+              {isLogin && userType === "user" && (
+                <>
+                  <Link to="/my-requests" onClick={closeMenu}>
+                    My Requests
+                  </Link>
 
+                  <Link to="/my-prescriptions" onClick={closeMenu}>
+                    My Prescriptions
+                  </Link>
+
+                  <Link to="/ai-assistant" onClick={closeMenu}>
+                    AI Assistant
+                  </Link>
+                </>
+              )}
+
+              {isLogin && userType === "user" && (
                 <div className="header-notification-wrapper">
 
                   <button

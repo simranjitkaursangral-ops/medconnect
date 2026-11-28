@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 import {
   addDoc,
@@ -9,35 +10,21 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL
-} from "firebase/storage";
-
-import { db, storage } from "../../firebase/Firebase";
+import { db } from "../../firebase/Firebase";
 
 function AddMedicine() {
   const navigate = useNavigate();
 
+  const CLOUDINARY_CLOUD_NAME = "jc5nbulp";
+  const CLOUDINARY_UPLOAD_PRESET = "prescription";
+
   const [formData, setFormData] = useState({
     medicineName: "",
-    brand: "",
-    manufacturer: "",
     dosage: "",
-    dosageForm: "",
-    packSize: "",
     category: "",
-    composition: "",
     uses: "",
     quantity: "",
-    mrp: "",
     price: "",
-    expiryDate: "",
-    prescriptionRequired: "No",
-    storageInstructions: "",
-    sideEffects: "",
-    directionsForUse: "",
     description: ""
   });
 
@@ -77,8 +64,29 @@ function AddMedicine() {
 
     setMedicineImage(file);
     setImagePreview(URL.createObjectURL(file));
-
     setError("");
+  };
+
+  // UPLOAD IMAGE TO CLOUDINARY USING AXIOS
+  const uploadImageToCloudinary = async (file, pharmacyId) => {
+    const imageData = new FormData();
+
+    imageData.append("file", file);
+    imageData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    imageData.append(
+      "folder",
+      `medconnect/medicines/${pharmacyId}`
+    );
+
+    const response = await axios.post(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+      imageData
+    );
+
+    return {
+      imageUrl: response.data.secure_url,
+      imagePath: response.data.public_id
+    };
   };
 
   // ADD MEDICINE
@@ -89,6 +97,7 @@ function AddMedicine() {
       !formData.medicineName.trim() ||
       !formData.dosage.trim() ||
       !formData.category.trim() ||
+      !formData.uses.trim() ||
       formData.quantity === "" ||
       formData.price === ""
     ) {
@@ -98,61 +107,30 @@ function AddMedicine() {
 
     const quantity = Number(formData.quantity);
     const price = Number(formData.price);
-    const mrp = formData.mrp === ""
-      ? null
-      : Number(formData.mrp);
 
-    if (
-      !Number.isInteger(quantity) ||
-      quantity < 0
-    ) {
-      setError("Please enter a valid whole-number quantity.");
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      setError("Please enter a valid quantity.");
       return;
     }
 
     if (!Number.isFinite(price) || price < 0) {
-      setError("Please enter a valid selling price.");
+      setError("Please enter a valid price.");
       return;
-    }
-
-    if (
-      mrp !== null &&
-      (!Number.isFinite(mrp) || mrp < 0)
-    ) {
-      setError("Please enter a valid MRP.");
-      return;
-    }
-
-    if (mrp !== null && price > mrp) {
-      setError("Selling price cannot be greater than MRP.");
-      return;
-    }
-
-    if (formData.expiryDate) {
-      const expiry = new Date(formData.expiryDate);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      if (expiry < today) {
-        setError("Please enter a valid future expiry date.");
-        return;
-      }
     }
 
     try {
       setLoading(true);
       setError("");
 
-      // GET LOGIN DETAILS
       const uid = localStorage.getItem("uid");
       const userType = localStorage.getItem("userType");
 
       if (!uid || userType !== "pharmacy") {
-        setError("Pharmacy session not found. Please login again.");
+        setError("Please login with your pharmacy account.");
         return;
       }
 
-      // GET USER DOCUMENT
+      // GET USER DETAILS
       const userRef = doc(db, "users", uid);
       const userSnapshot = await getDoc(userRef);
 
@@ -167,61 +145,53 @@ function AddMedicine() {
         userData.role !== "pharmacy" ||
         userData.status !== "approved"
       ) {
-        setError("Only approved pharmacy owners can add medicines.");
+        setError("Pharmacy account is not approved.");
         return;
       }
 
       if (!userData.pharmacyId) {
-        setError("Your pharmacy ID is missing.");
+        setError("Pharmacy ID is missing.");
         return;
       }
 
       const pharmacyId = userData.pharmacyId;
 
-      // GET PHARMACY DOCUMENT
+      // GET PHARMACY DETAILS
       const pharmacyRef = doc(db, "pharmacies", pharmacyId);
       const pharmacySnapshot = await getDoc(pharmacyRef);
 
       if (!pharmacySnapshot.exists()) {
-        setError("Your pharmacy profile was not found.");
+        setError("Pharmacy profile not found.");
         return;
       }
 
       const pharmacyData = pharmacySnapshot.data();
 
-      // CHECK OWNER AND APPROVAL
-      if (pharmacyData.ownerId !== uid) {
+      if (
+        pharmacyData.ownerId !== uid ||
+        pharmacyData.status !== "approved"
+      ) {
         setError("You are not authorized to manage this pharmacy.");
         return;
       }
 
-      if (pharmacyData.status !== "approved") {
-        setError("Your pharmacy is not approved yet.");
-        return;
-      }
-
-      // UPLOAD MEDICINE IMAGE
+      // CLOUDINARY IMAGE UPLOAD
       let imageUrl = "";
       let imagePath = "";
 
       if (medicineImage) {
-        const safeFileName = medicineImage.name.replace(
-          /[^a-zA-Z0-9.-]/g,
-          "_"
+        const imageResult = await uploadImageToCloudinary(
+          medicineImage,
+          pharmacyId
         );
 
-        imagePath = `medicineImages/${pharmacyId}/${Date.now()}-${safeFileName}`;
-
-        const imageRef = ref(storage, imagePath);
-
-        await uploadBytes(imageRef, medicineImage);
-
-        imageUrl = await getDownloadURL(imageRef);
+        imageUrl = imageResult.imageUrl;
+        imagePath = imageResult.imagePath;
       }
 
-      // ADD MEDICINE TO FIRESTORE
+      // SAVE MEDICINE IN FIRESTORE
       await addDoc(collection(db, "medicines"), {
-        pharmacyId: pharmacyId,
+        pharmacyId,
 
         pharmacyName: pharmacyData.name || "",
         pharmacyAddress: pharmacyData.address || "",
@@ -229,53 +199,27 @@ function AddMedicine() {
         pharmacyState: pharmacyData.state || "",
         pharmacyPhone: pharmacyData.phone || "",
 
-        // BASIC MEDICINE DETAILS
         medicineName: formData.medicineName.trim(),
-        brand: formData.brand.trim(),
-        manufacturer: formData.manufacturer.trim(),
         dosage: formData.dosage.trim(),
-        dosageForm: formData.dosageForm.trim(),
-        packSize: formData.packSize.trim(),
         category: formData.category.trim(),
-
-        // MEDICAL INFORMATION
-        composition: formData.composition.trim(),
         uses: formData.uses.trim(),
-        storageInstructions: formData.storageInstructions.trim(),
-        sideEffects: formData.sideEffects.trim(),
-        directionsForUse: formData.directionsForUse.trim(),
 
-        // PRICING
-        mrp: mrp,
-        price: price,
+        quantity,
+        price,
 
-        // STOCK
-        quantity: quantity,
+        description: formData.description.trim(),
+
+        imageUrl,
+        imagePath,
 
         available: quantity > 0,
 
         availability:
-          quantity > 0
-            ? "Available"
-            : "Out of Stock",
+          quantity > 0 ? "Available" : "Out of Stock",
 
-        // EXPIRY AND PRESCRIPTION
-        expiryDate: formData.expiryDate || "",
-        prescriptionRequired:
-          formData.prescriptionRequired === "Yes",
-
-        // IMAGE
-        imageUrl: imageUrl,
-        imagePath: imagePath,
-
-        // DESCRIPTION
-        description: formData.description.trim(),
-
-        // MEDICINE RECORD TIMESTAMPS
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
 
-        // STOCK VERIFICATION
         stockUpdatedAt: serverTimestamp(),
         stockVerifiedAt: serverTimestamp(),
 
@@ -288,8 +232,15 @@ function AddMedicine() {
     } catch (err) {
       console.error("ADD MEDICINE ERROR:", err);
 
+      console.error(
+        "ERROR RESPONSE:",
+        err.response?.data
+      );
+
       setError(
-        err.message || "Unable to add medicine."
+        err.response?.data?.error?.message ||
+        err.message ||
+        "Unable to add medicine."
       );
 
     } finally {
@@ -300,27 +251,22 @@ function AddMedicine() {
   return (
     <main className="admin-page">
 
-      {/* HERO */}
       <section className="admin-hero">
-
         <div className="admin-hero-content">
 
           <span className="section-badge">
-            INVENTORY MANAGEMENT
+            PHARMACY INVENTORY
           </span>
 
           <h1>Add Medicine</h1>
 
           <p>
-            Add medicine details, images and stock
-            information to your pharmacy inventory.
+            Add medicine details and update your pharmacy stock.
           </p>
 
         </div>
-
       </section>
 
-      {/* FORM */}
       <section className="admin-form-container">
 
         <div className="admin-form-card">
@@ -336,8 +282,7 @@ function AddMedicine() {
               <h2>Add New Medicine</h2>
 
               <p>
-                Provide complete medicine information
-                to help customers make informed decisions.
+                Enter the basic information of your medicine.
               </p>
 
             </div>
@@ -354,6 +299,7 @@ function AddMedicine() {
           >
 
             {/* MEDICINE IMAGE */}
+
             <div className="form-group admin-full-width">
 
               <label>Medicine Image</label>
@@ -364,17 +310,14 @@ function AddMedicine() {
                 onChange={handleImageChange}
               />
 
-              <small>
-                Upload a clear image of the medicine packaging.
-                Maximum size: 5 MB.
-              </small>
-
               {imagePreview && (
                 <div className="medicine-image-preview">
+
                   <img
                     src={imagePreview}
                     alt="Medicine preview"
                   />
+
                 </div>
               )}
 
@@ -383,6 +326,7 @@ function AddMedicine() {
             <div className="admin-form-grid">
 
               {/* MEDICINE NAME */}
+
               <div className="form-group">
 
                 <label>Medicine Name *</label>
@@ -393,41 +337,13 @@ function AddMedicine() {
                   value={formData.medicineName}
                   onChange={handleChange}
                   placeholder="Example: Paracetamol"
-                />
-
-              </div>
-
-              {/* BRAND */}
-              <div className="form-group">
-
-                <label>Brand Name</label>
-
-                <input
-                  type="text"
-                  name="brand"
-                  value={formData.brand}
-                  onChange={handleChange}
-                  placeholder="Example: Crocin"
-                />
-
-              </div>
-
-              {/* MANUFACTURER */}
-              <div className="form-group">
-
-                <label>Manufacturer</label>
-
-                <input
-                  type="text"
-                  name="manufacturer"
-                  value={formData.manufacturer}
-                  onChange={handleChange}
-                  placeholder="Manufacturer name"
+                  required
                 />
 
               </div>
 
               {/* DOSAGE */}
+
               <div className="form-group">
 
                 <label>Dosage *</label>
@@ -437,50 +353,14 @@ function AddMedicine() {
                   name="dosage"
                   value={formData.dosage}
                   onChange={handleChange}
-                  placeholder="Example: 500mg"
-                />
-
-              </div>
-
-              {/* DOSAGE FORM */}
-              <div className="form-group">
-
-                <label>Dosage Form</label>
-
-                <select
-                  name="dosageForm"
-                  value={formData.dosageForm}
-                  onChange={handleChange}
-                >
-                  <option value="">Select dosage form</option>
-                  <option value="Tablet">Tablet</option>
-                  <option value="Capsule">Capsule</option>
-                  <option value="Syrup">Syrup</option>
-                  <option value="Injection">Injection</option>
-                  <option value="Cream">Cream</option>
-                  <option value="Ointment">Ointment</option>
-                  <option value="Drops">Drops</option>
-                  <option value="Other">Other</option>
-                </select>
-
-              </div>
-
-              {/* PACK SIZE */}
-              <div className="form-group">
-
-                <label>Pack Size</label>
-
-                <input
-                  type="text"
-                  name="packSize"
-                  value={formData.packSize}
-                  onChange={handleChange}
-                  placeholder="Example: 10 tablets"
+                  placeholder="Example: 500 mg"
+                  required
                 />
 
               </div>
 
               {/* CATEGORY */}
+
               <div className="form-group">
 
                 <label>Category *</label>
@@ -490,93 +370,52 @@ function AddMedicine() {
                   name="category"
                   value={formData.category}
                   onChange={handleChange}
-                  placeholder="Example: Pain Relief"
-                />
-
-              </div>
-
-              {/* COMPOSITION */}
-              <div className="form-group admin-full-width">
-
-                <label>Composition / Active Ingredients</label>
-
-                <textarea
-                  name="composition"
-                  value={formData.composition}
-                  onChange={handleChange}
-                  placeholder="Enter verified active ingredients"
-                  rows="3"
-                />
-
-              </div>
-
-              {/* USES */}
-              <div className="form-group admin-full-width">
-
-                <label>Uses</label>
-
-                <textarea
-                  name="uses"
-                  value={formData.uses}
-                  onChange={handleChange}
-                  placeholder="Enter verified medicine information"
-                  rows="3"
+                  placeholder="Example: Fever"
+                  required
                 />
 
               </div>
 
               {/* QUANTITY */}
+
               <div className="form-group">
 
                 <label>Available Quantity *</label>
 
                 <input
                   type="number"
+                  name="quantity"
                   min="0"
                   step="1"
-                  name="quantity"
                   value={formData.quantity}
                   onChange={handleChange}
-                  placeholder="Enter available stock"
+                  placeholder="Enter quantity"
+                  required
                 />
 
               </div>
 
-              {/* MRP */}
+              {/* PRICE */}
+
               <div className="form-group">
 
-                <label>MRP (₹)</label>
+                <label>Price (₹) *</label>
 
                 <input
                   type="number"
-                  min="0"
-                  step="0.01"
-                  name="mrp"
-                  value={formData.mrp}
-                  onChange={handleChange}
-                  placeholder="Maximum retail price"
-                />
-
-              </div>
-
-              {/* SELLING PRICE */}
-              <div className="form-group">
-
-                <label>Selling Price (₹) *</label>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
                   name="price"
+                  min="0"
+                  step="0.01"
                   value={formData.price}
                   onChange={handleChange}
-                  placeholder="Enter selling price"
+                  placeholder="Enter price"
+                  required
                 />
 
               </div>
 
               {/* AVAILABILITY */}
+
               <div className="form-group">
 
                 <label>Availability</label>
@@ -595,91 +434,34 @@ function AddMedicine() {
 
               </div>
 
-              {/* EXPIRY DATE */}
-              <div className="form-group">
+              {/* USES */}
 
-                <label>Expiry Date</label>
-
-                <input
-                  type="date"
-                  name="expiryDate"
-                  value={formData.expiryDate}
-                  onChange={handleChange}
-                />
-
-              </div>
-
-              {/* PRESCRIPTION */}
-              <div className="form-group">
-
-                <label>Prescription Required?</label>
-
-                <select
-                  name="prescriptionRequired"
-                  value={formData.prescriptionRequired}
-                  onChange={handleChange}
-                >
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                </select>
-
-              </div>
-
-              {/* STORAGE */}
               <div className="form-group admin-full-width">
 
-                <label>Storage Instructions</label>
+                <label>Uses *</label>
 
                 <textarea
-                  name="storageInstructions"
-                  value={formData.storageInstructions}
+                  name="uses"
+                  value={formData.uses}
                   onChange={handleChange}
-                  placeholder="Enter verified storage instructions"
+                  placeholder="Example: Fever, headache, body pain"
                   rows="3"
-                />
-
-              </div>
-
-              {/* SIDE EFFECTS */}
-              <div className="form-group admin-full-width">
-
-                <label>Side Effects</label>
-
-                <textarea
-                  name="sideEffects"
-                  value={formData.sideEffects}
-                  onChange={handleChange}
-                  placeholder="Enter verified side-effect information"
-                  rows="3"
-                />
-
-              </div>
-
-              {/* DIRECTIONS */}
-              <div className="form-group admin-full-width">
-
-                <label>Directions for Use</label>
-
-                <textarea
-                  name="directionsForUse"
-                  value={formData.directionsForUse}
-                  onChange={handleChange}
-                  placeholder="Enter directions from approved product information"
-                  rows="3"
+                  required
                 />
 
               </div>
 
               {/* DESCRIPTION */}
+
               <div className="form-group admin-full-width">
 
-                <label>Additional Description</label>
+                <label>Description</label>
 
                 <textarea
                   name="description"
                   value={formData.description}
                   onChange={handleChange}
-                  placeholder="Enter additional product information"
+                  placeholder="Enter medicine description"
                   rows="4"
                 />
 
@@ -687,26 +469,6 @@ function AddMedicine() {
 
             </div>
 
-            {/* STOCK VERIFICATION */}
-            <div className="stock-verification-info">
-
-              <span className="stock-verification-dot"></span>
-
-              <div>
-
-                <strong>Stock verification enabled</strong>
-
-                <p>
-                  Your stock update time will be recorded
-                  so users can check how recently the
-                  pharmacy confirmed its inventory.
-                </p>
-
-              </div>
-
-            </div>
-
-            {/* ERROR */}
             {error && (
               <div className="form-error">
                 {error}
@@ -714,6 +476,7 @@ function AddMedicine() {
             )}
 
             {/* BUTTONS */}
+
             <div className="admin-form-actions">
 
               <button

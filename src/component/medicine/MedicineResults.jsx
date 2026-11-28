@@ -514,6 +514,9 @@ function MedicineResults() {
     if (item.pharmacyId) {
       params.set("pharmacyId", item.pharmacyId);
     }
+    if (item.price) {
+      params.set("price", item.price);
+    }
 
     if (pharmacy.name) {
       params.set("pharmacyName", pharmacy.name);
