@@ -19,6 +19,30 @@ import {
 
 import { auth, db } from "../../firebase/Firebase";
 
+const getNotificationDismissalKey = (userId) =>
+  `medconnect:dismissedNotifications:${userId}`;
+
+const readDismissedNotificationIds = (userId) => {
+  const savedIds = localStorage.getItem(
+    getNotificationDismissalKey(userId)
+  );
+
+  if (!savedIds) {
+    return [];
+  }
+
+  const parsedIds = JSON.parse(savedIds);
+
+  if (
+    !Array.isArray(parsedIds) ||
+    parsedIds.some((id) => typeof id !== "string")
+  ) {
+    throw new Error("Saved notification dismissals are invalid.");
+  }
+
+  return parsedIds;
+};
+
 function Header() {
   const navigate = useNavigate();
 
@@ -28,6 +52,8 @@ function Header() {
 
   const [notifications, setNotifications] = useState([]);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notificationActionError, setNotificationActionError] =
+    useState("");
 
   // AUTHENTICATION
 
@@ -99,8 +125,11 @@ function Header() {
 
     if (!user || userType !== "user") {
       setNotifications([]);
+      setNotificationActionError("");
       return;
     }
+
+    setNotificationActionError("");
 
     let requestData = [];
     let responseData = [];
@@ -112,8 +141,25 @@ function Header() {
         requestMap[request.id] = request;
       });
 
-      const combinedNotifications = responseData.map(
-        (response) => {
+      let dismissedIds = new Set();
+
+      try {
+        dismissedIds = new Set(
+          readDismissedNotificationIds(user.uid)
+        );
+      } catch (error) {
+        console.error(
+          "NOTIFICATION DISMISSALS LOAD ERROR:",
+          error
+        );
+        setNotificationActionError(
+          "Unable to load saved notification dismissals."
+        );
+      }
+
+      const combinedNotifications = responseData
+        .filter((response) => !dismissedIds.has(response.id))
+        .map((response) => {
           const request = requestMap[response.requestId] || {};
 
           return {
@@ -122,8 +168,7 @@ function Header() {
               request.medicineName || "Medicine request",
             requestId: response.requestId
           };
-        }
-      );
+        });
 
       combinedNotifications.sort((a, b) => {
         const dateA = a.respondedAt?.toDate
@@ -220,19 +265,81 @@ function Header() {
     }
   };
 
+  const handleDismissNotification = (notification) => {
+    const user = auth.currentUser;
+
+    if (!user || notification.userId !== user.uid) {
+      setNotificationActionError(
+        "You are not authorized to remove this notification."
+      );
+      return;
+    }
+
+    try {
+      const dismissedIds = new Set(
+        readDismissedNotificationIds(user.uid)
+      );
+      dismissedIds.add(notification.id);
+
+      localStorage.setItem(
+        getNotificationDismissalKey(user.uid),
+        JSON.stringify([...dismissedIds])
+      );
+
+      setNotificationActionError("");
+      setNotifications((current) =>
+        current.filter((item) => item.id !== notification.id)
+      );
+    } catch (error) {
+      console.error("NOTIFICATION DISMISS ERROR:", error);
+      setNotificationActionError(
+        "Unable to remove this notification from this browser."
+      );
+    }
+  };
+
   // LOGOUT
 
   const handleLogout = async () => {
     try {
+      const userId = auth.currentUser?.uid;
+      const dismissalKey = userId
+        ? getNotificationDismissalKey(userId)
+        : "";
+      let savedDismissals = null;
+
+      if (dismissalKey) {
+        try {
+          savedDismissals = localStorage.getItem(dismissalKey);
+        } catch (storageError) {
+          console.error(
+            "NOTIFICATION DISMISSALS SAVE ERROR:",
+            storageError
+          );
+        }
+      }
+
       await signOut(auth);
 
       localStorage.clear();
+
+      if (dismissalKey && savedDismissals) {
+        try {
+          localStorage.setItem(dismissalKey, savedDismissals);
+        } catch (storageError) {
+          console.error(
+            "NOTIFICATION DISMISSALS RESTORE ERROR:",
+            storageError
+          );
+        }
+      }
 
       setIsLogin(false);
       setUserType("");
       setMenuOpen(false);
       setNotificationOpen(false);
       setNotifications([]);
+      setNotificationActionError("");
 
       navigate("/login");
     } catch (error) {
@@ -467,6 +574,15 @@ function Header() {
 
                       </div>
 
+                      {notificationActionError && (
+                        <div
+                          className="notification-action-error"
+                          role="alert"
+                        >
+                          {notificationActionError}
+                        </div>
+                      )}
+
                       <div className="notification-list">
 
                         {notifications.length === 0 ? (
@@ -497,18 +613,24 @@ function Header() {
 
                               return (
 
-                                <button
-                                  type="button"
+                                <div
                                   key={notification.id}
-                                  className={
-                                    notification.isRead
-                                      ? "notification-item"
-                                      : "notification-item unread"
-                                  }
-                                  onClick={() =>
-                                    handleNotificationClick(notification)
-                                  }
+                                  className={`notification-row ${
+                                    notification.isRead ? "read" : "unread"
+                                  }`}
                                 >
+
+                                  <button
+                                    type="button"
+                                    className={
+                                      notification.isRead
+                                        ? "notification-item"
+                                        : "notification-item unread"
+                                    }
+                                    onClick={() =>
+                                      handleNotificationClick(notification)
+                                    }
+                                  >
 
                                   <div className="notification-item-icon">
                                     💊
@@ -582,7 +704,23 @@ function Header() {
 
                                   </div>
 
-                                </button>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="notification-dismiss-btn"
+                                    aria-label={`Remove notification for ${
+                                      notification.medicineName || "medicine request"
+                                    }`}
+                                    title="Remove notification"
+                                    onClick={() =>
+                                      handleDismissNotification(notification)
+                                    }
+                                  >
+                                    <span aria-hidden="true">🗑</span>
+                                  </button>
+
+                                </div>
 
                               );
                             }
@@ -591,18 +729,6 @@ function Header() {
                         )}
 
                       </div>
-
-                      <button
-                        type="button"
-                        className="notification-view-all"
-                        onClick={() => {
-                          setNotificationOpen(false);
-                          setMenuOpen(false);
-                          navigate("/my-requests");
-                        }}
-                      >
-                        Compare All Pharmacy Offers →
-                      </button>
 
                     </div>
 
